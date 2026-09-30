@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#2b1d3a" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Zubii ❤️ Keven</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,500&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ============ LOGIN ============ -->
+  <main id="login-screen" class="screen login">
+    <div class="login-card">
+      <h1 class="login-title">Our Private Chat 💕</h1>
+      <p class="login-sub">Just the two of us.</p>
+
+      <form id="login-form" autocomplete="on" novalidate>
+        <fieldset class="who">
+          <legend>Username</legend>
+          <label class="who-option">
+            <input type="radio" name="username" value="Zubii" checked />
+            <span>Zubii</span>
+          </label>
+          <label class="who-option">
+            <input type="radio" name="username" value="Keven" />
+            <span>Keven</span>
+          </label>
+        </fieldset>
+
+        <label class="field">
+          <span>Password</span>
+          <input id="password" type="password" placeholder="Enter password"
+                 autocomplete="current-password" required />
+        </label>
+
+        <p id="login-error" class="login-error" role="alert" hidden></p>
+
+        <button id="login-btn" type="submit" class="btn-primary">Enter Chat</button>
+      </form>
+    </div>
+  </main>
+
+  <!-- ============ CHAT ============ -->
+  <div id="chat-screen" class="screen chat" hidden>
+    <header class="chat-header">
+      <div class="header-title">
+        <h2>Zubii ❤️ Keven</h2>
+        <p id="conn-status" class="conn-status" data-state="connecting">Connecting…</p>
+      </div>
+      <button id="logout-btn" class="btn-ghost" type="button">Leave</button>
+    </header>
+
+    <div id="banner" class="banner" hidden></div>
+
+    <section id="messages" class="messages" aria-live="polite" aria-label="Conversation">
+      <button id="load-earlier" class="load-earlier" type="button" hidden>Load earlier messages</button>
+      <div id="message-list"></div>
+      <p id="empty-state" class="empty-state" hidden>No messages yet. Say hi 😊</p>
+    </section>
+
+    <div class="composer-wrap">
+      <div id="emoji-panel" class="emoji-panel" hidden role="dialog" aria-label="Emoji picker"></div>
+      <form id="composer" class="composer" autocomplete="off">
+        <button id="emoji-btn" class="icon-btn" type="button" aria-label="Open emoji picker" aria-expanded="false">😊</button>
+        <textarea id="message-input" rows="1" maxlength="2000"
+                  placeholder="Type a message..." aria-label="Message"></textarea>
+        <button id="send-btn" class="send-btn" type="submit" aria-label="Send message" disabled>
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12 2-12 2z" fill="currentColor"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
