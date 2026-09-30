@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#2b1d3a" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>Zubii ❤️ Keven</title>
+  <title>Private Chat</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,500&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -16,21 +16,13 @@
   <!-- ============ LOGIN ============ -->
   <main id="login-screen" class="screen login">
     <div class="login-card">
-      <h1 class="login-title">Our Private Chat 💕</h1>
-      <p class="login-sub">Just the two of us.</p>
 
       <form id="login-form" autocomplete="on" novalidate>
-        <fieldset class="who">
-          <legend>Username</legend>
-          <label class="who-option">
-            <input type="radio" name="username" value="Zubii" checked />
-            <span>Zubii</span>
-          </label>
-          <label class="who-option">
-            <input type="radio" name="username" value="Keven" />
-            <span>Keven</span>
-          </label>
-        </fieldset>
+        <label class="field">
+          <span>Username</span>
+          <input id="username" type="text" placeholder="Enter username"
+                 autocomplete="username" autocapitalize="words" autocorrect="off" spellcheck="false" required />
+        </label>
 
         <label class="field">
           <span>Password</span>
@@ -49,7 +41,7 @@
   <div id="chat-screen" class="screen chat" hidden>
     <header class="chat-header">
       <div class="header-title">
-        <h2>Zubii ❤️ Keven</h2>
+        <h2>Private Chat</h2>
         <p id="conn-status" class="conn-status" data-state="connecting">Connecting…</p>
       </div>
       <button id="logout-btn" class="btn-ghost" type="button">Leave</button>
