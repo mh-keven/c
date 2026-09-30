@@ -1,8 +1,4 @@
-/* Private chat
- * The password is checked on the server (Supabase database function), never here.
- * Row Level Security then only lets verified sessions read/write messages.
- * Only the publishable (anon) key belongs in this file.
- */
+
 
 // ====== 1. CONFIG — paste your own values (Project Settings → API) ======
 const SUPABASE_URL = "https://czqijodfoidzejgwblrf.supabase.co";
