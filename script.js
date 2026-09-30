@@ -57,7 +57,7 @@ let hasMore = false;
 const seen = new Set();        // message ids already rendered
 let lastDay = null;            // for date separators (bottom of list)
 
-const LOGIN_ERROR = "This chat is private. Check your username and password.";
+const LOGIN_ERROR = "Check your username and password.";
 
 // ====== 3. Login / logout ======
 function showError(msg) {
