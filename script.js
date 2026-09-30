@@ -5,7 +5,7 @@
  */
 
 // ====== 1. CONFIG — paste your own values (Project Settings → API) ======
-const SUPABASE_URL = "https://YOUR-PROJECT-REF.supabase.co";
+const SUPABASE_URL = "https://czqijodfoidzejgwblrf.supabase.co";
 const SUPABASE_KEY = "sb_publishable_MQXhkfcmpYCNbetVDR-ARw_yUoUkNmK";
 
 const PAGE_SIZE = 200;
