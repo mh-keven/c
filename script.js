@@ -1,4 +1,4 @@
-/* Zubii ❤️ Keven — private chat
+/* Private chat
  * Auth + data + realtime all go through Supabase. The password is checked by
  * Supabase Auth on the server, and Row Level Security guards the table.
  * Only the publishable (anon) key belongs in this file.
@@ -20,7 +20,7 @@ const MAX_LEN = 2000;
 
 // Face / emotion emojis only
 const EMOJIS = [
-  "😀","😃","😄","😁","😆","😅","😂","🤣",
+  "❤️","😀","😃","😄","😁","😆","😅","😂","🤣",
   "😊","😇","🙂","🙃","😉","😌","😍","🥰","😘",
   "😗","😙","😚","😋","😛","😝","😜","🤪",
   "🤨","🧐","🤓","😎","🤩","🥳",
@@ -40,7 +40,7 @@ const EMOJIS = [
 const $ = (id) => document.getElementById(id);
 const el = {
   loginScreen: $("login-screen"), chatScreen: $("chat-screen"),
-  loginForm: $("login-form"), password: $("password"),
+  loginForm: $("login-form"), username: $("username"), password: $("password"),
   loginError: $("login-error"), loginBtn: $("login-btn"),
   logoutBtn: $("logout-btn"), status: $("conn-status"), banner: $("banner"),
   scroller: $("messages"), list: $("message-list"), empty: $("empty-state"),
@@ -64,7 +64,7 @@ let hasMore = false;
 const seen = new Set();        // message ids already rendered
 let lastDay = null;            // for date separators (bottom of list)
 
-const LOGIN_ERROR = "This chat is only for Zubii & Keven. 💕";
+const LOGIN_ERROR = "This chat is private. Check your username and password.";
 
 // ====== 3. Login / logout ======
 function showError(msg) {
@@ -83,9 +83,11 @@ el.loginForm.addEventListener("submit", async (e) => {
 
   if (!db) return showError("Add your Supabase URL and key in script.js first.");
 
-  const username = new FormData(el.loginForm).get("username");
+  // Match the typed name to an allowed account, ignoring capitals and spaces
+  const typed = el.username.value.trim().toLowerCase();
+  const username = Object.keys(ACCOUNTS).find((n) => n.toLowerCase() === typed);
   const password = el.password.value;
-  if (!Object.prototype.hasOwnProperty.call(ACCOUNTS, username) || !password) {
+  if (!username || !password) {
     return showError(LOGIN_ERROR);
   }
 
