@@ -5,8 +5,8 @@
  */
 
 // ====== 1. CONFIG — paste your own values (Project Settings → API) ======
-const SUPABASE_URL = "https://YOUR-PROJECT-REF.supabase.co";
-const SUPABASE_KEY = "YOUR-PUBLISHABLE-OR-ANON-KEY";
+const SUPABASE_URL = "https://czqijodfoidzejgwblrf.supabase.co";
+const SUPABASE_KEY = "sb_publishable_MQXhkfcmpYCNbetVDR-ARw_yUoUkNmK";
 
 // Hidden login identities (created once in Supabase → Authentication → Users).
 // People only ever pick a name; the email is never shown or used for real mail.
