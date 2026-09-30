@@ -1,19 +1,12 @@
 /* Private chat
- * Auth + data + realtime all go through Supabase. The password is checked by
- * Supabase Auth on the server, and Row Level Security guards the table.
+ * The password is checked on the server (Supabase database function), never here.
+ * Row Level Security then only lets verified sessions read/write messages.
  * Only the publishable (anon) key belongs in this file.
  */
 
 // ====== 1. CONFIG — paste your own values (Project Settings → API) ======
 const SUPABASE_URL = "https://YOUR-PROJECT-REF.supabase.co";
 const SUPABASE_KEY = "sb_publishable_MQXhkfcmpYCNbetVDR-ARw_yUoUkNmK";
-
-// Hidden login identities (created once in Supabase → Authentication → Users).
-// People only ever pick a name; the email is never shown or used for real mail.
-const ACCOUNTS = {
-  Zubii: "zubii@ourprivatechat.app",
-  Keven: "keven@ourprivatechat.app",
-};
 
 const PAGE_SIZE = 200;
 const MAX_LEN = 2000;
@@ -72,9 +65,11 @@ function showError(msg) {
   el.loginError.hidden = false;
 }
 
-function nameFromSession(session) {
-  const email = (session?.user?.email || "").toLowerCase();
-  return Object.keys(ACCOUNTS).find((n) => ACCOUNTS[n] === email) || null;
+async function ensureAnonSession() {
+  const { data } = await db.auth.getSession();
+  if (data?.session) return null;
+  const { error } = await db.auth.signInAnonymously();
+  return error;
 }
 
 el.loginForm.addEventListener("submit", async (e) => {
@@ -83,34 +78,34 @@ el.loginForm.addEventListener("submit", async (e) => {
 
   if (!db) return showError("Add your Supabase URL and key in script.js first.");
 
-  // Match the typed name to an allowed account, ignoring capitals and spaces
-  const typed = el.username.value.trim().toLowerCase();
-  const username = Object.keys(ACCOUNTS).find((n) => n.toLowerCase() === typed);
+  const typed = el.username.value.trim();
   const password = el.password.value;
-  if (!username || !password) {
-    return showError(LOGIN_ERROR);
-  }
+  if (!typed || !password) return showError(LOGIN_ERROR);
 
   el.loginBtn.disabled = true;
   try {
-    const { data, error } = await db.auth.signInWithPassword({
-      email: ACCOUNTS[username],
-      password,
+    // 1) a plain anonymous session (no account needed), 2) the SERVER checks name + password
+    const anonError = await ensureAnonSession();
+    if (anonError) {
+      console.error(anonError);
+      return showError("Setup problem: " + anonError.message + " (turn on Anonymous sign-ins in Supabase → Authentication → Sign In / Providers)");
+    }
+
+    const { data: name, error } = await db.rpc("chat_login", {
+      p_username: typed,
+      p_password: password,
     });
     if (error) {
       console.error("Login error:", error);
-      // Wrong password/unknown user => friendly message. Anything else is a setup problem, so show it.
-      if (error.status === 400 && /invalid login credentials/i.test(error.message)) {
-        return showError(LOGIN_ERROR + " (If both are right, the user may not exist in Supabase yet.)");
+      if (/too_many_attempts/i.test(error.message)) {
+        return showError("Too many wrong tries. Please wait a few minutes.");
       }
-      return showError("Setup problem: " + error.message);
+      return showError("Setup problem: " + error.message + " (did you run setup.sql?)");
     }
-    if (nameFromSession(data.session) !== username) {
-      await db.auth.signOut();
-      return showError(LOGIN_ERROR);
-    }
+    if (!name) return showError(LOGIN_ERROR);
+
     el.password.value = "";
-    await openChat(username);
+    await openChat(name);
   } catch {
     showError("Couldn't reach the server. Check your connection and try again.");
   } finally {
@@ -120,6 +115,7 @@ el.loginForm.addEventListener("submit", async (e) => {
 
 el.logoutBtn.addEventListener("click", async () => {
   if (channel) { await db.removeChannel(channel); channel = null; }
+  try { await db.rpc("chat_logout"); } catch {}
   await db.auth.signOut();
   resetChatState();
   el.chatScreen.hidden = true;
@@ -140,9 +136,9 @@ function resetChatState() {
   buildEmojiPanel();
   if (!db) return;
   const { data } = await db.auth.getSession();
-  const name = nameFromSession(data?.session);
+  if (!data?.session) return;
+  const { data: name } = await db.rpc("chat_whoami");
   if (name) await openChat(name);
-  else if (data?.session) await db.auth.signOut();
 })();
 
 // ====== 4. Open chat, history, realtime ======
