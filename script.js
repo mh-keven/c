@@ -5,7 +5,7 @@
  */
 
 // ====== 1. CONFIG — paste your own values (Project Settings → API) ======
-const SUPABASE_URL = "https://czqijodfoidzejgwblrf.supabase.co";
+const SUPABASE_URL = "https://YOUR-PROJECT-REF.supabase.co";
 const SUPABASE_KEY = "sb_publishable_MQXhkfcmpYCNbetVDR-ARw_yUoUkNmK";
 
 // Hidden login identities (created once in Supabase → Authentication → Users).
@@ -97,8 +97,16 @@ el.loginForm.addEventListener("submit", async (e) => {
       email: ACCOUNTS[username],
       password,
     });
-    if (error || nameFromSession(data.session) !== username) {
-      if (data?.session) await db.auth.signOut();
+    if (error) {
+      console.error("Login error:", error);
+      // Wrong password/unknown user => friendly message. Anything else is a setup problem, so show it.
+      if (error.status === 400 && /invalid login credentials/i.test(error.message)) {
+        return showError(LOGIN_ERROR + " (If both are right, the user may not exist in Supabase yet.)");
+      }
+      return showError("Setup problem: " + error.message);
+    }
+    if (nameFromSession(data.session) !== username) {
+      await db.auth.signOut();
       return showError(LOGIN_ERROR);
     }
     el.password.value = "";
