@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#2b1d3a" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>Anonyms</title>
+  <title>Private Chat</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,500&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -32,7 +32,8 @@
 
         <p id="login-error" class="login-error" role="alert" hidden></p>
 
-        <button id="login-btn" type="submit" class="btn-primary">GO AHEAD</button>
+        <button id="login-btn" type="submit" class="btn-primary">Enter Chat</button>
+      
       </form>
     </div>
   </main>
@@ -61,12 +62,29 @@
         <button id="emoji-btn" class="icon-btn" type="button" aria-label="Open emoji picker" aria-expanded="false">😊</button>
         <textarea id="message-input" rows="1" maxlength="2000"
                   placeholder="Type a message..." aria-label="Message"></textarea>
-        <button id="send-btn" class="send-btn" type="submit" aria-label="Send message" disabled>
+        <button id="send-btn" class="send-btn" type="submit" aria-label="Send message" hidden>
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <path d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12 2-12 2z" fill="currentColor"/>
           </svg>
         </button>
+      
+        <button id="mic-btn" class="send-btn" type="button" aria-label="Record voice note">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z" fill="currentColor"/>
+          </svg>
+        </button>
       </form>
+      <div id="recorder" class="recorder" hidden>
+        <button id="rec-cancel" class="icon-btn" type="button" aria-label="Cancel recording">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/></svg>
+        </button>
+        <div class="rec-info"><span class="rec-dot"></span><span id="rec-time">0:00</span><span class="rec-hint">Recording…</span></div>
+        <button id="rec-send" class="send-btn" type="button" aria-label="Send voice note">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12 2-12 2z" fill="currentColor"/></svg>
+        </button>
+      </div>
+
+
     </div>
   </div>
 
