@@ -4,6 +4,8 @@
  * Only the publishable (anon) key belongs in this file.
  */
 
+console.log("Private chat script v4");
+
 // ====== 1. CONFIG — paste your own values (Project Settings → API) ======
 const SUPABASE_URL = "https://czqijodfoidzejgwblrf.supabase.co";
 const SUPABASE_KEY = "sb_publishable_MQXhkfcmpYCNbetVDR-ARw_yUoUkNmK";
