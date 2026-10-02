@@ -1,15 +1,17 @@
 
-
 // ====== 1. CONFIG — paste your own values (Project Settings → API) ======
 const SUPABASE_URL = "https://czqijodfoidzejgwblrf.supabase.co";
 const SUPABASE_KEY = "sb_publishable_MQXhkfcmpYCNbetVDR-ARw_yUoUkNmK";
 
 const PAGE_SIZE = 200;
 const MAX_LEN = 2000;
+const MAX_VOICE_SECONDS = 300;           // 5 minutes per voice note
+const COLS = "id, username, message, created_at, audio_path, audio_seconds";
+const BUCKET = "voice-notes";
 
 // Face / emotion emojis only
 const EMOJIS = [
-  "❤️","😀","😃","😄","😁","😆","😅","😂","🤣",
+  "❤️""😀","😃","😄","😁","😆","😅","😂","🤣",
   "😊","😇","🙂","🙃","😉","😌","😍","🥰","😘",
   "😗","😙","😚","😋","😛","😝","😜","🤪",
   "🤨","🧐","🤓","😎","🤩","🥳",
@@ -36,6 +38,8 @@ const el = {
   loadEarlier: $("load-earlier"),
   composer: $("composer"), input: $("message-input"), sendBtn: $("send-btn"),
   emojiBtn: $("emoji-btn"), emojiPanel: $("emoji-panel"),
+  micBtn: $("mic-btn"), recorder: $("recorder"), recTime: $("rec-time"),
+  recCancel: $("rec-cancel"), recSend: $("rec-send"),
 };
 
 const configured = !SUPABASE_URL.includes("YOUR-PROJECT") && !SUPABASE_KEY.includes("YOUR-");
@@ -45,6 +49,11 @@ const db = configured
     })
   : null;
 
+let other = null;               // the other person's name
+let rec = null;                 // active voice recording
+let currentAudio = null;        // voice note currently playing
+let connState = "connecting";
+let otherOnline = false;
 let me = null;                 // "Zubii" | "Keven"
 let channel = null;
 let oldestId = null;           // smallest message id loaded
@@ -53,7 +62,7 @@ let hasMore = false;
 const seen = new Set();        // message ids already rendered
 let lastDay = null;            // for date separators (bottom of list)
 
-const LOGIN_ERROR = "Check your username and password.";
+const LOGIN_ERROR = "This chat is private. Check your username and password.";
 
 // ====== 3. Login / logout ======
 function showError(msg) {
@@ -119,6 +128,9 @@ el.logoutBtn.addEventListener("click", async () => {
 });
 
 function resetChatState() {
+  if (rec) stopRecording(false);
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  otherOnline = false;
   me = null; oldestId = null; newestId = 0; hasMore = false; lastDay = null;
   seen.clear();
   el.list.innerHTML = "";
@@ -140,6 +152,7 @@ function resetChatState() {
 // ====== 4. Open chat, history, realtime ======
 async function openChat(username) {
   me = username;
+  other = me === "Zubii" ? "Keven" : "Zubii";
   el.loginScreen.hidden = true;
   el.chatScreen.hidden = false;
   setStatus("connecting");
@@ -151,7 +164,7 @@ async function openChat(username) {
 async function loadLatest() {
   const { data, error } = await db
     .from("messages")
-    .select("id, username, message, created_at")
+    .select(COLS)
     .order("id", { ascending: false })
     .limit(PAGE_SIZE);
 
@@ -175,7 +188,7 @@ el.loadEarlier.addEventListener("click", async () => {
   el.loadEarlier.disabled = true;
   const { data, error } = await db
     .from("messages")
-    .select("id, username, message, created_at")
+    .select(COLS)
     .lt("id", oldestId)
     .order("id", { ascending: false })
     .limit(PAGE_SIZE);
@@ -203,10 +216,15 @@ el.loadEarlier.addEventListener("click", async () => {
   el.scroller.style.scrollBehavior = "";
 });
 
-function subscribe() {
+async function subscribe() {
   if (channel) db.removeChannel(channel);
+  await db.realtime.setAuth(); // needed for private (authorized) channels
   channel = db
-    .channel("private-chat")
+    .channel("private-chat", { config: { private: true, presence: { key: me } } })
+    .on("presence", { event: "sync" }, () => {
+      otherOnline = Object.keys(channel.presenceState()).includes(other);
+      renderStatus();
+    })
     .on("postgres_changes",
       { event: "INSERT", schema: "public", table: "messages" },
       (payload) => {
@@ -216,10 +234,11 @@ function subscribe() {
         el.empty.hidden = true;
         if (m.username === me || nearBottom) scrollToBottom(true);
       })
-    .subscribe((status) => {
+    .subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
         setStatus("online");
         hideBanner();
+        try { await channel.track({ user: me, at: new Date().toISOString() }); } catch {}
         catchUp(); // fetch anything missed while disconnected
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
         setStatus("offline");
@@ -234,7 +253,7 @@ async function catchUp() {
   if (!newestId) return;
   const { data } = await db
     .from("messages")
-    .select("id, username, message, created_at")
+    .select(COLS)
     .gt("id", newestId)
     .order("id", { ascending: true });
   if (data?.length) {
@@ -294,7 +313,7 @@ function buildRow(m, isFirstOfGroup, animate) {
   time.dateTime = m.created_at;
   time.textContent = new Date(m.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-  bubble.append(text, time);
+  bubble.append(m.audio_path ? buildVoice(m) : text, time);
   row.appendChild(bubble);
   return row;
 }
@@ -326,16 +345,26 @@ function scrollToBottom(smooth) {
   });
 }
 
-function setStatus(state) {
-  el.status.dataset.state = state;
-  el.status.textContent = { online: "Online", offline: "Reconnecting…", connecting: "Connecting…" }[state];
+function setStatus(state) { connState = state; renderStatus(); }
+function renderStatus() {
+  if (connState === "connecting") {
+    el.status.dataset.state = "connecting"; el.status.textContent = "Connecting…";
+  } else if (connState === "offline") {
+    el.status.dataset.state = "offline"; el.status.textContent = "Reconnecting…";
+  } else {
+    el.status.dataset.state = otherOnline ? "online" : "idle";
+    el.status.textContent = `${other} is ${otherOnline ? "online" : "offline"}`;
+  }
 }
 function showBanner(text) { el.banner.textContent = text; el.banner.hidden = false; }
 function hideBanner() { el.banner.hidden = true; }
 
 // ====== 6. Sending ======
 function updateSendState() {
-  el.sendBtn.disabled = el.input.value.trim().length === 0;
+  const hasText = el.input.value.trim().length > 0;
+  el.sendBtn.hidden = !hasText;
+  el.sendBtn.disabled = false;
+  el.micBtn.hidden = hasText;
 }
 
 function autoGrow() {
@@ -363,7 +392,7 @@ el.composer.addEventListener("submit", async (e) => {
   const { data, error } = await db
     .from("messages")
     .insert({ username: me, message: text })
-    .select("id, username, message, created_at")
+    .select(COLS)
     .single();
 
   if (error) {
@@ -381,6 +410,158 @@ el.composer.addEventListener("submit", async (e) => {
   scrollToBottom(true);
   el.input.focus({ preventScroll: true });
 });
+
+// ====== 6b. Voice notes ======
+const fmtTime = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+
+function pickMime() {
+  // mp4/AAC plays on iPhones and modern Android; webm/ogg are fallbacks
+  const options = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+  return options.find((t) => window.MediaRecorder && MediaRecorder.isTypeSupported(t)) || "";
+}
+
+async function startRecording() {
+  if (rec) return;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    return showBanner("Voice notes aren't supported in this browser.");
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    return showBanner("Allow microphone access to send voice notes.");
+  }
+  const mime = pickMime();
+  const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  const r = { mr, stream, chunks: [], startedAt: Date.now(), send: false, timer: null, mime: mr.mimeType || mime || "audio/webm" };
+  rec = r;
+
+  mr.ondataavailable = (e) => { if (e.data && e.data.size) r.chunks.push(e.data); };
+  mr.onstop = () => finishRecording(r);
+
+  closeEmoji();
+  el.composer.hidden = true;
+  el.recorder.hidden = false;
+  el.recTime.textContent = "0:00";
+  r.timer = setInterval(() => {
+    const secs = (Date.now() - r.startedAt) / 1000;
+    el.recTime.textContent = fmtTime(secs);
+    if (secs >= MAX_VOICE_SECONDS) stopRecording(true);
+  }, 250);
+  mr.start();
+}
+
+function stopRecording(send) {
+  if (!rec) return;
+  rec.send = send;
+  if (rec.mr.state !== "inactive") rec.mr.stop();
+  else finishRecording(rec);
+}
+
+async function finishRecording(r) {
+  if (rec !== r) return;
+  rec = null;
+  clearInterval(r.timer);
+  r.stream.getTracks().forEach((t) => t.stop());
+  el.recorder.hidden = true;
+  el.composer.hidden = false;
+
+  const secs = Math.min(MAX_VOICE_SECONDS, Math.round((Date.now() - r.startedAt) / 1000));
+  if (!r.send || !me) return;
+  if (secs < 1 || !r.chunks.length) return showBanner("Voice note too short.");
+
+  showBanner("Sending voice note…");
+  const base = r.mime.split(";")[0];
+  const ext = base.includes("mp4") ? "m4a" : base.includes("ogg") ? "ogg" : "webm";
+  const path = `${me}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const blob = new Blob(r.chunks, { type: base });
+
+  const { error: upErr } = await db.storage.from(BUCKET).upload(path, blob, { contentType: base, cacheControl: "3600" });
+  if (upErr) { console.error(upErr); return showBanner("Couldn't upload the voice note. Try again."); }
+
+  const { data, error } = await db
+    .from("messages")
+    .insert({ username: me, message: "Voice note", audio_path: path, audio_seconds: Math.max(1, secs) })
+    .select(COLS)
+    .single();
+  if (error) { console.error(error); return showBanner("Voice note not sent. Try again."); }
+
+  hideBanner();
+  appendMessage(data, { animate: true });
+  el.empty.hidden = true;
+  scrollToBottom(true);
+}
+
+el.micBtn.addEventListener("click", startRecording);
+el.recCancel.addEventListener("click", () => stopRecording(false));
+el.recSend.addEventListener("click", () => stopRecording(true));
+
+const ICON_PLAY = '<svg class="i-play" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
+const ICON_PAUSE = '<svg class="i-pause" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z" fill="currentColor"/></svg>';
+
+function buildVoice(m) {
+  const wrap = document.createElement("div");
+  wrap.className = "voice";
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "v-play";
+  btn.setAttribute("aria-label", "Play voice note");
+  btn.innerHTML = ICON_PLAY + ICON_PAUSE;
+
+  const bar = document.createElement("div");
+  bar.className = "v-bar";
+  const fill = document.createElement("div");
+  fill.className = "v-fill";
+  bar.appendChild(fill);
+
+  const dur = document.createElement("span");
+  dur.className = "v-dur";
+  dur.textContent = fmtTime(m.audio_seconds || 0);
+
+  wrap.append(btn, bar, dur);
+
+  const ui = { audio: null, wrap, btn, fill, dur, total: m.audio_seconds || 0 };
+  btn.addEventListener("click", () => togglePlay(m, ui));
+  bar.addEventListener("click", (e) => {
+    if (!ui.audio) return;
+    const box = bar.getBoundingClientRect();
+    const total = isFinite(ui.audio.duration) ? ui.audio.duration : ui.total;
+    ui.audio.currentTime = Math.max(0, Math.min(1, (e.clientX - box.left) / box.width)) * total;
+  });
+  return wrap;
+}
+
+async function togglePlay(m, ui) {
+  if (ui.audio && !ui.audio.paused) { ui.audio.pause(); return; }
+  if (currentAudio && currentAudio !== ui.audio) currentAudio.pause();
+
+  if (!ui.audio) {
+    ui.btn.disabled = true;
+    const { data, error } = await db.storage.from(BUCKET).createSignedUrl(m.audio_path, 3600);
+    ui.btn.disabled = false;
+    if (error) { console.error(error); return showBanner("Couldn't load the voice note."); }
+
+    const a = new Audio(data.signedUrl);
+    a.preload = "auto";
+    a.addEventListener("play", () => ui.wrap.classList.add("playing"));
+    a.addEventListener("pause", () => ui.wrap.classList.remove("playing"));
+    a.addEventListener("ended", () => {
+      ui.wrap.classList.remove("playing");
+      ui.fill.style.width = "0%";
+      ui.dur.textContent = fmtTime(ui.total);
+    });
+    a.addEventListener("timeupdate", () => {
+      const total = isFinite(a.duration) && a.duration > 0 ? a.duration : ui.total || 1;
+      ui.fill.style.width = Math.min(100, (a.currentTime / total) * 100) + "%";
+      ui.dur.textContent = fmtTime(a.currentTime);
+    });
+    a.addEventListener("error", () => { ui.audio = null; showBanner("This voice note can't be played on this device."); });
+    ui.audio = a;
+  }
+  currentAudio = ui.audio;
+  try { await ui.audio.play(); } catch { showBanner("Couldn't play the voice note."); }
+}
 
 // ====== 7. Emoji picker ======
 function buildEmojiPanel() {
