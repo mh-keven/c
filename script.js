@@ -1,3 +1,8 @@
+/* Private chat
+ * The password is checked on the server (Supabase database function), never here.
+ * Row Level Security then only lets verified sessions read/write messages.
+ * Only the publishable (anon) key belongs in this file.
+ */
 
 // ====== 1. CONFIG — paste your own values (Project Settings → API) ======
 const SUPABASE_URL = "https://czqijodfoidzejgwblrf.supabase.co";
@@ -9,9 +14,9 @@ const MAX_VOICE_SECONDS = 300;           // 5 minutes per voice note
 const COLS = "id, username, message, created_at, audio_path, audio_seconds";
 const BUCKET = "voice-notes";
 
-// Face / emotion emojis only
+// Face / emotion emojis + the heart
 const EMOJIS = [
-  "❤️""😀","😃","😄","😁","😆","😅","😂","🤣",
+  "❤️","😀","😃","😄","😁","😆","😅","😂","🤣",
   "😊","😇","🙂","🙃","😉","😌","😍","🥰","😘",
   "😗","😙","😚","😋","😛","😝","😜","🤪",
   "🤨","🧐","🤓","😎","🤩","🥳",
@@ -111,8 +116,11 @@ el.loginForm.addEventListener("submit", async (e) => {
 
     el.password.value = "";
     await openChat(name);
-  } catch {
-    showError("Couldn't reach the server. Check your connection and try again.");
+  } catch (err) {
+    console.error(err);
+    el.chatScreen.hidden = true;
+    el.loginScreen.hidden = false;
+    showError("Something went wrong: " + (err?.message || err));
   } finally {
     el.loginBtn.disabled = false;
   }
@@ -143,10 +151,16 @@ function resetChatState() {
 (async function init() {
   buildEmojiPanel();
   if (!db) return;
-  const { data } = await db.auth.getSession();
-  if (!data?.session) return;
-  const { data: name } = await db.rpc("chat_whoami");
-  if (name) await openChat(name);
+  try {
+    const { data } = await db.auth.getSession();
+    if (!data?.session) return;
+    const { data: name } = await db.rpc("chat_whoami");
+    if (name) await openChat(name);
+  } catch (err) {
+    console.error(err);
+    el.chatScreen.hidden = true;
+    el.loginScreen.hidden = false;
+  }
 })();
 
 // ====== 4. Open chat, history, realtime ======
@@ -606,3 +620,6 @@ document.addEventListener("click", (e) => {
   if (!el.emojiPanel.hidden && !e.target.closest("#emoji-panel") && !e.target.closest("#emoji-btn")) closeEmoji();
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeEmoji(); });
+
+// Tells index.html the whole script loaded without crashing
+window.__chatReady = true;
