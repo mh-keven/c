@@ -253,6 +253,8 @@ button { cursor: pointer; }
 }
 .conn-status[data-state="online"]::before { background: #4cd98a; }
 .conn-status[data-state="offline"]::before { background: #ff6b6b; }
+.conn-status[data-state="idle"]::before { background: #9a8fae; }
+.conn-status[data-state="online"]::before { box-shadow: 0 0 0 3px rgba(76, 217, 138, 0.25); }
 
 .btn-ghost {
   border: 1px solid rgba(255, 255, 255, 0.3);
@@ -451,3 +453,35 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* ---------- Voice notes ---------- */
+.voice { display: flex; align-items: center; gap: 10px; min-width: 190px; padding: 2px 0 0; }
+.v-play {
+  flex: none; width: 36px; height: 36px; border: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.25); color: inherit;
+}
+.theirs .v-play { background: rgba(226, 69, 111, 0.14); color: var(--rose-deep); }
+@media (prefers-color-scheme: dark) { .theirs .v-play { color: #ff9db6; } }
+.v-play .i-pause { display: none; }
+.voice.playing .i-play { display: none; }
+.voice.playing .i-pause { display: block; }
+.v-play:disabled { opacity: 0.5; }
+.v-bar {
+  flex: 1; height: 6px; border-radius: 999px; cursor: pointer;
+  background: rgba(255, 255, 255, 0.3); position: relative; overflow: hidden;
+}
+.theirs .v-bar { background: rgba(120, 100, 140, 0.25); }
+.v-fill { height: 100%; width: 0%; background: currentColor; border-radius: 999px; }
+.v-dur { flex: none; font-size: 0.8rem; font-variant-numeric: tabular-nums; opacity: 0.85; min-width: 2.4em; text-align: right; }
+
+.recorder {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border-radius: 26px; padding: 6px;
+  box-shadow: var(--shadow-sm);
+}
+.recorder .icon-btn { color: var(--ink-soft); }
+.rec-info { flex: 1; display: flex; align-items: center; gap: 10px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.rec-hint { font-weight: 400; color: var(--ink-soft); font-size: 0.9rem; }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #ff3b5c; animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.25; transform: scale(0.8); } }
