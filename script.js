@@ -60,7 +60,11 @@ let currentAudio = null;        // voice note currently playing
 let connState = "connecting";
 let otherOnline = false;
 let me = null;                 // "Zubii" | "Keven"
-let channel = null;
+let channel = null;             // messages channel
+let presenceCh = null;          // online/offline channel
+let retryTimer = null, presenceRetry = null, presenceFails = 0;
+let pingTimer = null, pollTimer = null, pollTick = 0;
+let otherLastSeen = null;
 let oldestId = null;           // smallest message id loaded
 let newestId = 0;              // largest message id loaded
 let hasMore = false;
@@ -127,7 +131,7 @@ el.loginForm.addEventListener("submit", async (e) => {
 });
 
 el.logoutBtn.addEventListener("click", async () => {
-  if (channel) { await db.removeChannel(channel); channel = null; }
+  await stopRealtime();
   try { await db.rpc("chat_logout"); } catch {}
   await db.auth.signOut();
   resetChatState();
@@ -139,6 +143,7 @@ function resetChatState() {
   if (rec) stopRecording(false);
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
   otherOnline = false;
+  otherLastSeen = null;
   me = null; oldestId = null; newestId = 0; hasMore = false; lastDay = null;
   seen.clear();
   el.list.innerHTML = "";
@@ -171,7 +176,7 @@ async function openChat(username) {
   el.chatScreen.hidden = false;
   setStatus("connecting");
   await loadLatest();
-  subscribe();
+  startRealtime();
   el.input.focus({ preventScroll: true });
 }
 
@@ -230,15 +235,38 @@ el.loadEarlier.addEventListener("click", async () => {
   el.scroller.style.scrollBehavior = "";
 });
 
-async function subscribe() {
-  if (channel) db.removeChannel(channel);
-  await db.realtime.setAuth(); // needed for private (authorized) channels
-  channel = db
-    .channel("private-chat", { config: { private: true, presence: { key: me } } })
-    .on("presence", { event: "sync" }, () => {
-      otherOnline = Object.keys(channel.presenceState()).includes(other);
-      renderStatus();
-    })
+// Messages and presence use SEPARATE channels, so a presence hiccup can never delay messages.
+function startRealtime() {
+  startMessages();
+  startPresence();
+  clearInterval(pingTimer); clearInterval(pollTimer);
+  touch(); fetchLastSeen();
+  pingTimer = setInterval(() => { touch(); if (!otherOnline) fetchLastSeen(); }, 20000);
+  pollTimer = setInterval(() => {
+    pollTick++;
+    // safety net: if realtime is down, check for new messages every 5s; otherwise every 20s
+    if (!document.hidden && (connState !== "online" || pollTick % 4 === 0)) catchUp();
+  }, 5000);
+}
+
+async function stopRealtime() {
+  clearTimeout(retryTimer); clearTimeout(presenceRetry);
+  clearInterval(pingTimer); clearInterval(pollTimer);
+  const c = channel, p = presenceCh;
+  channel = null; presenceCh = null;
+  try { if (c) await db.removeChannel(c); } catch {}
+  try { if (p) await db.removeChannel(p); } catch {}
+}
+
+async function startMessages() {
+  clearTimeout(retryTimer);
+  const old = channel;
+  channel = null;
+  try { if (old) await db.removeChannel(old); } catch {}
+  if (!me) return;
+
+  const ch = db
+    .channel("chat-messages")
     .on("postgres_changes",
       { event: "INSERT", schema: "public", table: "messages" },
       (payload) => {
@@ -248,19 +276,82 @@ async function subscribe() {
         el.empty.hidden = true;
         if (m.username === me || nearBottom) scrollToBottom(true);
       })
-    .subscribe(async (status) => {
+    .subscribe((status) => {
+      if (ch !== channel) return; // ignore callbacks from channels we replaced
       if (status === "SUBSCRIBED") {
         setStatus("online");
         hideBanner();
-        try { await channel.track({ user: me, at: new Date().toISOString() }); } catch {}
         catchUp(); // fetch anything missed while disconnected
-      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
         setStatus("offline");
-        showBanner("Connection lost. Trying to reconnect…");
-      } else if (status === "CLOSED") {
-        setStatus("offline");
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(startMessages, 3000);
       }
     });
+  channel = ch;
+}
+
+async function startPresence() {
+  clearTimeout(presenceRetry);
+  const old = presenceCh;
+  presenceCh = null;
+  try { if (old) await db.removeChannel(old); } catch {}
+  if (!me) return;
+  try { await db.realtime.setAuth(); } catch {}
+
+  const ch = db.channel("chat-presence", { config: { private: true, presence: { key: me } } });
+  presenceCh = ch;
+  ch.on("presence", { event: "sync" }, () => {
+    if (ch !== presenceCh) return;
+    const metas = ch.presenceState()[other] || [];
+    otherOnline = metas.some((m) => m.state !== "away");
+    renderStatus();
+    if (!otherOnline) fetchLastSeen();
+  });
+  ch.subscribe((status) => {
+    if (ch !== presenceCh) return;
+    if (status === "SUBSCRIBED") {
+      presenceFails = 0;
+      trackPresence();
+    } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+      otherOnline = false;
+      renderStatus();
+      presenceFails++;
+      clearTimeout(presenceRetry);
+      presenceRetry = setTimeout(startPresence, Math.min(30000, 4000 * presenceFails));
+    }
+  });
+}
+
+function trackPresence() {
+  if (!presenceCh) return;
+  presenceCh.track({ user: me, state: document.hidden ? "away" : "active", at: Date.now() }).catch(() => {});
+}
+
+// "Last seen": the server stores a timestamp that each person refreshes while the chat is open
+async function touch() {
+  if (!me) return;
+  try { await db.rpc("chat_touch"); } catch {}
+}
+
+async function fetchLastSeen() {
+  if (!me || !other) return;
+  try {
+    const { data } = await db.from("chat_status").select("last_seen").eq("username", other).maybeSingle();
+    otherLastSeen = data?.last_seen || null;
+    renderStatus();
+  } catch {}
+}
+
+function fmtLastSeen(iso) {
+  const d = new Date(iso);
+  const mins = (Date.now() - d.getTime()) / 60000;
+  if (mins < 1) return "just now";
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const y = new Date(); y.setDate(y.getDate() - 1);
+  if (dayKey(iso) === dayKey(new Date())) return `today at ${time}`;
+  if (dayKey(iso) === dayKey(y)) return `yesterday at ${time}`;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) + ` at ${time}`;
 }
 
 async function catchUp() {
@@ -279,9 +370,17 @@ async function catchUp() {
 
 // Refresh when the phone wakes up or the network comes back
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && me) catchUp();
+  if (!me) return;
+  trackPresence();
+  touch();
+  if (!document.hidden) {
+    catchUp();
+    fetchLastSeen();
+    if (connState !== "online") startMessages();
+  }
 });
-window.addEventListener("online", () => { if (me) subscribe(); });
+window.addEventListener("pagehide", () => { if (me) touch(); });
+window.addEventListener("online", () => { if (me) { startMessages(); startPresence(); } });
 window.addEventListener("offline", () => {
   setStatus("offline");
   showBanner("You're offline. Messages will send when you're back.");
@@ -365,9 +464,13 @@ function renderStatus() {
     el.status.dataset.state = "connecting"; el.status.textContent = "Connecting…";
   } else if (connState === "offline") {
     el.status.dataset.state = "offline"; el.status.textContent = "Reconnecting…";
+  } else if (otherOnline) {
+    el.status.dataset.state = "online"; el.status.textContent = `${other} · online`;
   } else {
-    el.status.dataset.state = otherOnline ? "online" : "idle";
-    el.status.textContent = `${other} is ${otherOnline ? "online" : "offline"}`;
+    el.status.dataset.state = "idle";
+    el.status.textContent = otherLastSeen
+      ? `${other} · last seen ${fmtLastSeen(otherLastSeen)}`
+      : `${other} · offline`;
   }
 }
 function showBanner(text) { el.banner.textContent = text; el.banner.hidden = false; }
