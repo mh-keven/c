@@ -485,3 +485,5 @@ button { cursor: pointer; }
 .rec-hint { font-weight: 400; color: var(--ink-soft); font-size: 0.9rem; }
 .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #ff3b5c; animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.25; transform: scale(0.8); } }
+
+.ver { margin: 14px 0 0; text-align: center; font-size: 0.7rem; color: var(--ink-soft); opacity: 0.5; }
