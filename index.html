@@ -17,7 +17,7 @@
   <main id="login-screen" class="screen login">
     <div class="login-card">
 
-      <form id="login-form" autocomplete="on" novalidate>
+      <form id="login-form" autocomplete="on" novalidate onsubmit="return false">
         <label class="field">
           <span>Username</span>
           <input id="username" type="text" placeholder="Enter username"
@@ -32,7 +32,7 @@
 
         <p id="login-error" class="login-error" role="alert" hidden></p>
 
-        <button id="login-btn" type="submit" class="btn-primary">Enter Chat</button>
+        <button id="login-btn" type="submit" class="btn-primary">GO AHEAD</button>
       
       </form>
     </div>
@@ -42,7 +42,7 @@
   <div id="chat-screen" class="screen chat" hidden>
     <header class="chat-header">
       <div class="header-title">
-        <h2>Private Chat</h2>
+        <h2>CHATTING</h2>
         <p id="conn-status" class="conn-status" data-state="connecting">Connecting…</p>
       </div>
       <button id="logout-btn" class="btn-ghost" type="button">Leave</button>
@@ -58,7 +58,7 @@
 
     <div class="composer-wrap">
       <div id="emoji-panel" class="emoji-panel" hidden role="dialog" aria-label="Emoji picker"></div>
-      <form id="composer" class="composer" autocomplete="off">
+      <form id="composer" class="composer" autocomplete="off" onsubmit="return false">
         <button id="emoji-btn" class="icon-btn" type="button" aria-label="Open emoji picker" aria-expanded="false">😊</button>
         <textarea id="message-input" rows="1" maxlength="2000"
                   placeholder="Type a message..." aria-label="Message"></textarea>
@@ -90,5 +90,15 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
   <script src="script.js"></script>
+  <script>
+    // If script.js is missing, cached from an old version, or crashed, say so instead of silently reloading
+    setTimeout(function () {
+      if (!window.__chatReady) {
+        var e = document.getElementById("login-error");
+        e.textContent = "script.js did not load correctly. Re-upload all 3 files, then hard-refresh (check the browser console, F12).";
+        e.hidden = false;
+      }
+    }, 2500);
+  </script>
 </body>
 </html>
