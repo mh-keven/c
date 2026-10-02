@@ -58,13 +58,11 @@ let other = null;               // the other person's name
 let rec = null;                 // active voice recording
 let currentAudio = null;        // voice note currently playing
 let connState = "connecting";
-let otherOnline = false;
 let me = null;                 // "Zubii" | "Keven"
 let channel = null;             // messages channel
-let presenceCh = null;          // online/offline channel
-let retryTimer = null, presenceRetry = null, presenceFails = 0;
-let pingTimer = null, pollTimer = null, pollTick = 0;
-let otherLastSeen = null;
+let retryTimer = null;
+let tickTimer = null, tickCount = 0;
+let otherLastSeen = null, otherAgo = null, otherFetchedAt = 0, peerKnown = false;
 let oldestId = null;           // smallest message id loaded
 let newestId = 0;              // largest message id loaded
 let hasMore = false;
@@ -142,8 +140,7 @@ el.logoutBtn.addEventListener("click", async () => {
 function resetChatState() {
   if (rec) stopRecording(false);
   if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-  otherOnline = false;
-  otherLastSeen = null;
+  otherLastSeen = null; otherAgo = null; peerKnown = false;
   me = null; oldestId = null; newestId = 0; hasMore = false; lastDay = null;
   seen.clear();
   el.list.innerHTML = "";
@@ -235,27 +232,29 @@ el.loadEarlier.addEventListener("click", async () => {
   el.scroller.style.scrollBehavior = "";
 });
 
-// Messages and presence use SEPARATE channels, so a presence hiccup can never delay messages.
+// Messages arrive two ways: instantly through Realtime, and through a 3-second check as a safety net.
+// Online / last seen uses a small "heartbeat" saved on the server, so it does not depend on Realtime.
 function startRealtime() {
   startMessages();
-  startPresence();
-  clearInterval(pingTimer); clearInterval(pollTimer);
-  touch(); fetchLastSeen();
-  pingTimer = setInterval(() => { touch(); if (!otherOnline) fetchLastSeen(); }, 20000);
-  pollTimer = setInterval(() => {
-    pollTick++;
-    // safety net: if realtime is down, check for new messages every 5s; otherwise every 20s
-    if (!document.hidden && (connState !== "online" || pollTick % 4 === 0)) catchUp();
-  }, 5000);
+  clearInterval(tickTimer);
+  tickCount = 0;
+  touch(); fetchPeer();
+  tickTimer = setInterval(() => {
+    if (document.hidden || !me) return;
+    tickCount++;
+    catchUp();                              // every 3s
+    if (tickCount % 5 === 0) touch();       // every 15s
+    if (tickCount % 3 === 0) fetchPeer();   // every 9s
+    renderStatus();
+  }, 3000);
 }
 
 async function stopRealtime() {
-  clearTimeout(retryTimer); clearTimeout(presenceRetry);
-  clearInterval(pingTimer); clearInterval(pollTimer);
-  const c = channel, p = presenceCh;
-  channel = null; presenceCh = null;
+  clearTimeout(retryTimer);
+  clearInterval(tickTimer);
+  const c = channel;
+  channel = null;
   try { if (c) await db.removeChannel(c); } catch {}
-  try { if (p) await db.removeChannel(p); } catch {}
 }
 
 async function startMessages() {
@@ -276,12 +275,13 @@ async function startMessages() {
         el.empty.hidden = true;
         if (m.username === me || nearBottom) scrollToBottom(true);
       })
-    .subscribe((status) => {
+    .subscribe((status, err) => {
+      console.log("[realtime]", status, err || "");
       if (ch !== channel) return; // ignore callbacks from channels we replaced
       if (status === "SUBSCRIBED") {
         setStatus("online");
         hideBanner();
-        catchUp(); // fetch anything missed while disconnected
+        catchUp();
       } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
         setStatus("offline");
         clearTimeout(retryTimer);
@@ -291,56 +291,27 @@ async function startMessages() {
   channel = ch;
 }
 
-async function startPresence() {
-  clearTimeout(presenceRetry);
-  const old = presenceCh;
-  presenceCh = null;
-  try { if (old) await db.removeChannel(old); } catch {}
-  if (!me) return;
-  try { await db.realtime.setAuth(); } catch {}
-
-  const ch = db.channel("chat-presence", { config: { private: true, presence: { key: me } } });
-  presenceCh = ch;
-  ch.on("presence", { event: "sync" }, () => {
-    if (ch !== presenceCh) return;
-    const metas = ch.presenceState()[other] || [];
-    otherOnline = metas.some((m) => m.state !== "away");
-    renderStatus();
-    if (!otherOnline) fetchLastSeen();
-  });
-  ch.subscribe((status) => {
-    if (ch !== presenceCh) return;
-    if (status === "SUBSCRIBED") {
-      presenceFails = 0;
-      trackPresence();
-    } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-      otherOnline = false;
-      renderStatus();
-      presenceFails++;
-      clearTimeout(presenceRetry);
-      presenceRetry = setTimeout(startPresence, Math.min(30000, 4000 * presenceFails));
-    }
-  });
-}
-
-function trackPresence() {
-  if (!presenceCh) return;
-  presenceCh.track({ user: me, state: document.hidden ? "away" : "active", at: Date.now() }).catch(() => {});
-}
-
-// "Last seen": the server stores a timestamp that each person refreshes while the chat is open
+// ---- heartbeat: online / last seen ----
 async function touch() {
   if (!me) return;
-  try { await db.rpc("chat_touch"); } catch {}
+  const { error } = await db.rpc("chat_touch");
+  if (error) console.warn("chat_touch failed (did you run addons2.sql?)", error.message);
 }
 
-async function fetchLastSeen() {
-  if (!me || !other) return;
-  try {
-    const { data } = await db.from("chat_status").select("last_seen").eq("username", other).maybeSingle();
-    otherLastSeen = data?.last_seen || null;
-    renderStatus();
-  } catch {}
+async function fetchPeer() {
+  if (!me) return;
+  const { data, error } = await db.rpc("chat_peer_status");
+  if (error) { console.warn("chat_peer_status failed (did you run addons2.sql?)", error.message); return; }
+  peerKnown = true;
+  otherLastSeen = data?.last_seen || null;
+  otherAgo = data?.seconds_ago ?? null;
+  otherFetchedAt = Date.now();
+  renderStatus();
+}
+
+function otherIsOnline() {
+  if (!peerKnown || otherAgo == null) return false;
+  return otherAgo + (Date.now() - otherFetchedAt) / 1000 <= 40;
 }
 
 function fmtLastSeen(iso) {
@@ -355,7 +326,6 @@ function fmtLastSeen(iso) {
 }
 
 async function catchUp() {
-  if (!newestId) return;
   const { data } = await db
     .from("messages")
     .select(COLS)
@@ -370,17 +340,14 @@ async function catchUp() {
 
 // Refresh when the phone wakes up or the network comes back
 document.addEventListener("visibilitychange", () => {
-  if (!me) return;
-  trackPresence();
+  if (!me || document.hidden) return;
+  catchUp();
   touch();
-  if (!document.hidden) {
-    catchUp();
-    fetchLastSeen();
-    if (connState !== "online") startMessages();
-  }
+  fetchPeer();
+  if (connState !== "online") startMessages();
 });
 window.addEventListener("pagehide", () => { if (me) touch(); });
-window.addEventListener("online", () => { if (me) { startMessages(); startPresence(); } });
+window.addEventListener("online", () => { if (me) { startMessages(); catchUp(); } });
 window.addEventListener("offline", () => {
   setStatus("offline");
   showBanner("You're offline. Messages will send when you're back.");
@@ -460,12 +427,14 @@ function scrollToBottom(smooth) {
 
 function setStatus(state) { connState = state; renderStatus(); }
 function renderStatus() {
-  if (connState === "connecting") {
-    el.status.dataset.state = "connecting"; el.status.textContent = "Connecting…";
-  } else if (connState === "offline") {
-    el.status.dataset.state = "offline"; el.status.textContent = "Reconnecting…";
-  } else if (otherOnline) {
-    el.status.dataset.state = "online"; el.status.textContent = `${other} · online`;
+  if (!peerKnown) {
+    el.status.dataset.state = connState === "online" ? "idle" : "connecting";
+    el.status.textContent = other || "";
+    return;
+  }
+  if (otherIsOnline()) {
+    el.status.dataset.state = "online";
+    el.status.textContent = `${other} · online`;
   } else {
     el.status.dataset.state = "idle";
     el.status.textContent = otherLastSeen
