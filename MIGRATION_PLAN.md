@@ -8,17 +8,17 @@
 - **Temporary compatibility:** keep the current Apps Script deployment available until the Supabase version is tested end-to-end.
 
 ## Repository baseline audited
-The current main frontend calls the Google Apps Script /exec endpoint for login, messages, status, gallery, likes/comments, Drive uploads and WebRTC signaling. The Google backend stores records in Sheets. There is no setup.sql at the current main branch, and script.js explicitly says it is Google Apps Script only. Do not assume an older Supabase schema is still installed.
+The current main frontend calls the Google Apps Script /exec endpoint for login, messages, status, gallery, likes/comments, Drive uploads and WebRTC signaling. The Google backend stores records in Sheets. The previous Supabase code used an anonymous Supabase Auth session plus server-side RPC functions (chat_login/chat_whoami) and a private voice-notes bucket. The current main branch no longer includes its base schema, so confirm the existing project functions before applying this additive SQL.
 
 ## Phase 1 — database foundation
-1. In Supabase Dashboard → SQL Editor, run supabase/schema.sql only after confirming the intended Anonyms project.
-2. In Supabase Authentication → Users, create exactly two accounts, one for Keven and one for Zubii. Set each user's metadata username to exactly Keven or Zubii. Do not enable public sign-ups.
-3. Verify the trigger created one matching row in public.profiles for each Auth user.
-4. In Authentication URL configuration, allow https://mh-keven.github.io/c/ and the local development URL if used.
-5. Store only the Supabase project URL and publishable/anon key in frontend configuration. Never expose a service-role key.
+1. Confirm the existing Supabase project URL is https://czqijodfoidzejgwblrf.supabase.co before running anything.
+2. In Supabase Dashboard → SQL Editor, run supabase/schema.sql only after verifying the existing chat_login/current_chat_user functions are present. This file is an additive migration for the prior custom-login model; it does not create new Auth users or replace existing login functions.
+3. Confirm Anonymous sign-ins remain enabled because the old frontend establishes an anonymous Supabase Auth session and verifies the entered username/password through server-side RPC.
+4. Verify the private voice-notes bucket and gallery_likes/gallery_comments policies were created.
+5. Store only the project URL and publishable/anon key in frontend configuration. Never expose a service-role key.
 
 ## Phase 2 — frontend integration
-- Replace Apps Script calls for login/session, text messages, voice notes, likes/comments, and presence with Supabase Auth/Postgres/Realtime.
+- Keep the existing custom username/password login flow, backed by Supabase anonymous Auth plus the server-side chat_login/chat_whoami RPCs. Replace Apps Script calls for text messages, voice notes, likes/comments, and presence with Supabase Postgres/Realtime.
 - Keep gallery file uploads/download authorization on the Google Drive backend until a server-side authorization bridge is implemented. Do not expose Apps Script owner credentials or Drive OAuth tokens.
 - Map each signed-in Supabase user to the matching Google account email for Drive permissions. Ensure only Keven and Zubii can view the private Drive folder/files.
 - Keep the old backend available during migration; do not delete data or turn it off yet.
