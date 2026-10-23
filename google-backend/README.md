@@ -30,4 +30,4 @@ This is a fresh backend for Anonyms. It does not use Supabase. It is deliberatel
 - Do not store Google passwords or OAuth refresh tokens in Sheets. The app passwords belong only in Script Properties. Script Properties are accessible to project editors, so only trusted people should have editor access.
 
 ## Current status
-This folder is the backend foundation and setup documentation. It does not automatically replace the root website or configure/deploy the Apps Script project. The old root website remains unchanged on this branch until the Google API and account-sharing setup can be tested.
+The migration branch replaces the root frontend with the Google-backed chat/gallery UI and includes this backend foundation. It does not deploy the Apps Script project or configure the frontend API URL automatically. Voice-note recording/playback from the old version is not yet included in this first migration pass. Keep this PR in draft until Google API setup, account sharing, and browser flows are tested end to end.
