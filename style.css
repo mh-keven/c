@@ -165,6 +165,8 @@ button { cursor: pointer; }
   transition: border-color 0.2s;
 }
 .field input:focus { border-color: var(--rose); outline: none; }
+.login .field input { background: #fff; color: #24202b; border-color: #d8d2df; }
+.login .field input::placeholder { color: #77717f; opacity: 1; }
 
 .login-error {
   margin: 0 0 14px;
