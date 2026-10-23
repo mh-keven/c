@@ -369,14 +369,10 @@ function uploadChunk_(user, payload) {
   const file = JSON.parse(response.getContentText() || '{}');
   if (!file.id) throw new Error('Google Drive finished without returning a file ID.');
   const now = new Date().toISOString(), id = Utilities.getUuid();
-  try { grantPrivateViewers_(file.id); }
-  catch (error) {
-    try { DriveApp.getFileById(file.id).setTrashed(true); } catch (_) {}
-    cache.remove(key);
-    throw error;
-  }
   cache.remove(key);
   if (meta.purpose === 'voice') {
+    // Voice notes are stored in private Supabase Storage. They do not need Drive
+    // sharing, so do not attempt to grant Google Drive viewer permissions.
     try {
       const driveFile = DriveApp.getFileById(file.id);
       const saved = saveSupabaseVoiceNote_(user,driveFile,meta.mime_type,meta.duration_seconds);
@@ -385,6 +381,12 @@ function uploadChunk_(user, payload) {
       // Keep the Drive copy as a recovery fallback if Supabase is temporarily unavailable.
       throw new Error('Voice note reached Drive but could not be saved to Supabase. ' + safeError_(error));
     }
+  }
+  // Gallery media still uses the existing private Drive-sharing behavior.
+  try { grantPrivateViewers_(file.id); }
+  catch (error) {
+    try { DriveApp.getFileById(file.id).setTrashed(true); } catch (_) {}
+    throw error;
   }
   const mediaType = meta.mime_type.startsWith('image/') ? 'image' : 'video';
   withLock_(() => sheet_('Gallery').appendRow([id,user,meta.title,'',mediaType,'drive',file.id,'',meta.mime_type,now]));
@@ -399,15 +401,13 @@ function sendVoiceNote_(user, payload) {
   const name = String(payload.filename || 'voice-note.webm').replace(/[\\/\\r\\n]/g,'_').slice(0,160);
   const folder = DriveApp.getFolderById(PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY));
   const file = folder.createFile(Utilities.newBlob(bytes,mime,name));
-  const props = PropertiesService.getScriptProperties();
-  const emails = [props.getProperty('ANONYMS_KEVEN_EMAIL'),props.getProperty('ANONYMS_ZUBII_EMAIL')].filter(Boolean);
-  if (emails.length !== 2) { file.setTrashed(true); throw new Error('Configure ANONYMS_KEVEN_EMAIL and ANONYMS_ZUBII_EMAIL before recording voice notes.'); }
-  emails.forEach(email => file.addViewer(email));
-  const now = new Date().toISOString(), id = Utilities.getUuid();
-  const duration = Math.max(1, Number(payload.duration_seconds) || 1);
-  const url = 'https://drive.google.com/uc?export=view&id=' + file.getId();
-  withLock_(() => sheet_('Messages').appendRow([id,user,'Voice note',now,'audio',file.getId(),url,mime,duration]));
-  return {ok:true,message:{id:id,username:user,message:'Voice note',created_at:now,media_type:'audio',media_id:file.getId(),media_url:url,media_mime:mime,duration_seconds:duration}};
+  // Keep legacy voice uploads on the same private Supabase Storage path as chunked uploads.
+  try {
+    const saved = saveSupabaseVoiceNote_(user,file,mime,payload.duration_seconds);
+    return {ok:true,message:saved.message};
+  } catch (error) {
+    throw new Error('Voice note reached Drive but could not be saved to Supabase. ' + safeError_(error));
+  }
 }
 
 function uploadMedia_(user, payload) {
