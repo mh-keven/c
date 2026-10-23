@@ -221,7 +221,7 @@
     state.peerUsername = peer.username || (state.user === 'Keven' ? 'Zubii' : 'Keven');
     state.peerOnline = !!peer.online;
     $('conn-status').textContent = state.peerUsername + (peer.online ? ' · online' : peer.last_seen ? ' · last seen ' + timeLabel(peer.last_seen) : ' · offline');
-    $('conn-status').dataset.state = peer.online ? 'online' : 'idle';
+    $('conn-status').dataset.state = peer.online ? 'online' : 'offline';
     renderVideoPanel();
   }
 
@@ -326,7 +326,7 @@
       if (state.call !== call) return;
       if (pc.connectionState === 'connected') { call.connected = true; renderVideoPanel(); }
       if (['failed','closed','disconnected'].includes(pc.connectionState)) {
-        if (pc.connectionState === 'failed') endCall(true);
+        if (pc.connectionState === 'failed') { banner('Video could not connect. This network may require a TURN relay.'); endCall(true); }
         else if (pc.connectionState === 'disconnected') setTimeout(() => { if (state.call === call && call.pc && call.pc.connectionState === 'disconnected') endCall(true); }, 8000);
       }
     };
