@@ -206,9 +206,16 @@ function supabaseStorageUpload_(path, blob) {
 }
 function supabaseSignedAudioUrl_(path) {
   if (!path) return '';
+  // Signed URLs last 24 hours; reuse a cached URL for six hours instead of
+  // making another Storage API request on every chat refresh.
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'anonyms_audio_url_' + digest_(String(path));
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
   const props = PropertiesService.getScriptProperties();
   const base = String(props.getProperty('SUPABASE_URL') || '').replace(/\/+$/, '');
   const key = props.getProperty('SUPABASE_SERVICE_ROLE_KEY');
+  if (!base || !key) throw new Error('Supabase backend is not configured.');
   const response = UrlFetchApp.fetch(base + '/storage/v1/object/sign/anonyms-voice-notes/' + String(path).split('/').map(encodeURIComponent).join('/'), {
     method:'post', contentType:'application/json', headers:{apikey:key,Authorization:'Bearer '+key},
     payload:JSON.stringify({expiresIn:86400}), muteHttpExceptions:true
@@ -216,13 +223,15 @@ function supabaseSignedAudioUrl_(path) {
   if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) throw new Error('Could not create a secure voice-note link.');
   const result = JSON.parse(response.getContentText() || '{}');
   const signed = result.signedURL || result.signedUrl || '';
-  return signed.startsWith('http') ? signed : base + '/storage/v1' + (signed.startsWith('/') ? signed : '/' + signed);
+  const url = signed.startsWith('http') ? signed : base + '/storage/v1' + (signed.startsWith('/') ? signed : '/' + signed);
+  cache.put(cacheKey, url, 21600);
+  return url;
 }
 function getSupabaseMessages_(before, limit, after) {
   const max = Math.min(Math.max(Number(limit) || 200,1),200);
   let query = '/rest/v1/anonyms_messages?select=id,username,message,created_at,media_type,media_path,duration_seconds&limit=' + max;
   if (before) query += '&created_at=lt.' + encodeURIComponent(String(before)) + '&order=created_at.desc';
-  else if (after) query += '&created_at=gte.' + encodeURIComponent(String(after)) + '&order=created_at.asc';
+  else if (after) query += '&created_at=gt.' + encodeURIComponent(String(after)) + '&order=created_at.asc';
   else query += '&order=created_at.desc';
   const rows = supabaseRest_('GET',query,null) || [];
   if (!after) rows.reverse();
@@ -234,14 +243,23 @@ function sendSupabaseMessage_(user, message) {
   const row = supabaseRest_('POST','/rest/v1/anonyms_messages',[{username:user,message:message,media_type:'text',created_at:new Date().toISOString()}],'return=representation')[0];
   return {ok:true,message:{id:row.id,username:row.username,message:row.message,created_at:row.created_at,media_type:'text'}};
 }
-function saveSupabaseVoiceNote_(user, driveFile, mime, duration) {
+function saveSupabaseVoiceNoteBlob_(user, blob, mime, duration) {
   const id = Utilities.getUuid(), now = new Date().toISOString();
-  const path = user.toLowerCase() + '/' + id + '.' + (String(mime).includes('ogg') ? 'ogg' : String(mime).includes('mp4') ? 'm4a' : 'webm');
-  const blob = driveFile.getBlob().setContentType(mime || 'audio/webm');
+  const safeMime = String(mime || blob.getContentType() || 'audio/webm').split(';')[0];
+  const extension = safeMime.includes('ogg') ? 'ogg' : safeMime.includes('mp4') ? 'm4a' : safeMime.includes('mpeg') ? 'mp3' : safeMime.includes('wav') ? 'wav' : 'webm';
+  const path = user.toLowerCase() + '/' + id + '.' + extension;
+  blob.setContentType(safeMime);
   supabaseStorageUpload_(path,blob);
   const row = supabaseRest_('POST','/rest/v1/anonyms_messages',[{id:id,username:user,message:'Voice note',media_type:'audio',media_path:path,duration_seconds:Math.max(1,Number(duration)||1),created_at:now}],'return=representation')[0];
+  return {ok:true,message:{id:row.id,username:row.username,message:'Voice note',created_at:row.created_at,media_type:'audio',media_id:path,media_url:supabaseSignedAudioUrl_(path),media_mime:safeMime,duration_seconds:row.duration_seconds}};
+}
+
+// Compatibility for an already-running older resumable upload session. New clients
+// send the recorded blob directly to sendVoiceNote_ and never create a Drive copy.
+function saveSupabaseVoiceNote_(user, driveFile, mime, duration) {
+  const saved = saveSupabaseVoiceNoteBlob_(user, driveFile.getBlob(), mime, duration);
   try { driveFile.setTrashed(true); } catch (_) {}
-  return {ok:true,message:{id:row.id,username:row.username,message:'Voice note',created_at:row.created_at,media_type:'audio',media_id:path,media_url:supabaseSignedAudioUrl_(path),media_mime:mime,duration_seconds:row.duration_seconds}};
+  return saved;
 }
 function toggleSupabaseLike_(user, galleryId) {
   galleryId = String(galleryId || '');
@@ -393,20 +411,15 @@ function uploadChunk_(user, payload) {
 }
 
 function sendVoiceNote_(user, payload) {
-  const mime = String(payload.mime_type || 'audio/webm');
+  const mime = String(payload.mime_type || 'audio/webm').split(';')[0];
   if (!mime.startsWith('audio/')) throw new Error('This is not a supported audio recording.');
   const bytes = Utilities.base64Decode(String(payload.base64 || ''));
-  if (!bytes.length || bytes.length > CFG.MAX_UPLOAD_BYTES) throw new Error('Voice note is too large. Record a shorter note and try again.');
-  const name = String(payload.filename || 'voice-note.webm').replace(/[\\/\\r\\n]/g,'_').slice(0,160);
-  const folder = DriveApp.getFolderById(PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY));
-  const file = folder.createFile(Utilities.newBlob(bytes,mime,name));
-  // Keep legacy voice uploads on the same private Supabase Storage path as chunked uploads.
-  try {
-    const saved = saveSupabaseVoiceNote_(user,file,mime,payload.duration_seconds);
-    return {ok:true,message:saved.message};
-  } catch (error) {
-    throw new Error('Voice note reached Drive but could not be saved to Supabase. ' + safeError_(error));
-  }
+  if (!bytes.length || bytes.length > CFG.MAX_UPLOAD_BYTES) throw new Error('Voice note is too large. Please record a shorter note and try again.');
+  // Voice recordings are small at 32 kbps. Store the posted bytes directly in
+  // private Supabase Storage instead of round-tripping them through Google Drive.
+  const blob = Utilities.newBlob(bytes,mime,String(payload.filename || 'voice-note.webm').replace(/[\\/\\r\\n]/g,'_').slice(0,160));
+  const saved = saveSupabaseVoiceNoteBlob_(user,blob,mime,payload.duration_seconds);
+  return {ok:true,message:saved.message};
 }
 
 function uploadMedia_(user, payload) {
