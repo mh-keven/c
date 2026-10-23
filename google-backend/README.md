@@ -31,7 +31,8 @@ This is the Google backend for the clean-start Anonyms frontend now committed to
 ## Important limitations and privacy
 - Google Apps Script is not a high-throughput realtime database. The initial implementation uses polling and is intended for a small, two-person chat.
 - Drive media is shared only with the two configured Google account emails. Both users must use those Google accounts in their browser to preview media.
-- Device uploads are capped at 8 MB in this initial endpoint to stay within Apps Script request/runtime constraints. Large videos need a resumable Drive upload flow rather than base64-through-Apps-Script.
+- Photos and videos use a Google Drive resumable upload session and 1 MiB chunks instead of sending the entire file as base64 in one request. There is no app-defined file-size cap in this path, but Google Drive file limits, Apps Script execution quotas, network reliability, and the user's browser still apply.
+- Voice notes are stored as private Drive files and referenced in the Messages sheet. Keep the configured user emails accurate so only Keven and Zubii are granted viewer access.
 - Unlisted YouTube videos are not private: anyone with the link can watch them, and embedding may be disabled by the uploader.
 - Apps Script web apps have quotas and response-size limits. This backend must be tested with your actual Google accounts before use.
 - Do not store Google passwords or OAuth refresh tokens in Sheets. The app passwords belong only in Script Properties. Script Properties are accessible to project editors, so only trusted people should have editor access.

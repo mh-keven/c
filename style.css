@@ -416,6 +416,10 @@ button { cursor: pointer; }
   transition: transform 0.15s, background 0.2s, opacity 0.2s;
 }
 .icon-btn { background: transparent; font-size: 1.4rem; }
+.voice-note-btn { font-size: 1.15rem; }
+.voice-note-btn.recording { background: rgba(226,69,111,.16); color: var(--rose-deep); }
+.voice audio { width: min(260px, 100%); max-width: 100%; height: 38px; }
+.voice { flex-wrap: wrap; min-width: min(190px, 100%); }
 .icon-btn:hover, .icon-btn[aria-expanded="true"] { background: rgba(226, 69, 111, 0.12); }
 .send-btn { background: var(--mine-bg); color: #fff; }
 .send-btn:active:not(:disabled), .icon-btn:active { transform: scale(0.92); }

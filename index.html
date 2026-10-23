@@ -26,7 +26,7 @@
       <div class="chat-workspace">
         <aside id="video-panel" class="video-panel" aria-label="Video call">
           <p class="video-panel-kicker">VIDEO</p>
-          <h3 id="video-panel-title">Talk face to face</h3>
+          <h3 id="video-panel-title">See the face</h3>
           <p id="video-call-status" class="video-call-status" role="status">Check whether the other person is online.</p>
           <button id="request-video-btn" class="video-request-btn" type="button">Request to Start Video</button>
           <div id="incoming-call-actions" class="incoming-call-actions" hidden>
@@ -40,14 +40,14 @@
         </aside>
         <div class="chat-main">
       <div id="messages" class="messages" aria-live="polite" aria-label="Conversation"><button id="load-earlier" class="load-earlier" type="button" hidden>Load earlier messages</button><div id="message-list"></div><p id="empty-state" class="empty-state" hidden>No messages yet. Say hi 😊</p></div>
-      <div class="composer-wrap"><form id="composer" class="composer" autocomplete="off"><button id="emoji-btn" class="icon-btn" type="button" aria-label="Open emoji picker">😊</button><textarea id="message-input" rows="1" maxlength="2000" placeholder="Type a message…" aria-label="Message"></textarea><button id="send-btn" class="send-btn" type="submit" aria-label="Send message">➤</button></form><div id="emoji-panel" class="emoji-panel" hidden></div></div>
+      <div class="composer-wrap"><form id="composer" class="composer" autocomplete="off"><button id="emoji-btn" class="icon-btn" type="button" aria-label="Open emoji picker">😊</button><textarea id="message-input" rows="1" maxlength="2000" placeholder="Type a message…" aria-label="Message"></textarea><button id="voice-note-btn" class="icon-btn voice-note-btn" type="button" aria-label="Record voice note" title="Record voice note">🎙️</button><button id="send-btn" class="send-btn" type="submit" aria-label="Send message">➤</button></form><div id="emoji-panel" class="emoji-panel" hidden></div></div>
         </div>
       </div>
     </section>
     <section id="gallery-view" class="view gallery-view" hidden>
       <div class="gallery-heading"><div><p class="eyebrow">YOUR SHARED MOMENTS</p><h2>Our gallery</h2><p>Photos, videos, and little memories.</p></div><button id="open-upload" class="btn-primary upload-open" type="button">＋ Add media</button></div>
       <section id="upload-panel" class="upload-panel" hidden><div class="upload-options">
-        <label class="upload-drop" id="drop-zone" for="media-files"><span class="upload-icon">↥</span><strong>Drop photos or videos here</strong><span>or click to choose from your device</span><small>Maximum 8 MB per file in this version</small><input id="media-files" type="file" accept="image/*,video/*" multiple hidden></label>
+        <label class="upload-drop" id="drop-zone" for="media-files"><span class="upload-icon">↥</span><strong>Drop photos or videos here</strong><span>or click to choose from your device</span><small>Large photos and videos upload in chunks. Drive limits and network speed still apply.</small><input id="media-files" type="file" accept="image/*,video/*" multiple hidden></label>
         <div class="youtube-form"><p class="eyebrow">YOUTUBE VIDEO</p><h3>Paste an unlisted link</h3><label class="field"><span>Video URL</span><input id="youtube-url" type="url" placeholder="https://youtu.be/…"></label><label class="field"><span>Title (optional)</span><input id="youtube-title" maxlength="120" placeholder="A little memory"></label><label class="field"><span>Caption (optional)</span><input id="youtube-caption" maxlength="500" placeholder="Add a note…"></label><button id="save-youtube" class="btn-primary" type="button">Add to gallery</button></div>
       </div><p id="upload-status" class="upload-status" role="status"></p></section>
       <div class="gallery-toolbar"><p id="gallery-message">Loading your memories…</p><button id="refresh-gallery" class="text-button" type="button">Refresh</button></div><div id="gallery-grid" class="gallery-grid"></div>
