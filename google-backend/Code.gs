@@ -329,7 +329,7 @@ function getSupabaseMessages_(before, limit, after) {
   const max = Math.min(Math.max(Number(limit) || 200,1),200);
   let query = '/rest/v1/anonyms_messages?select=id,username,message,created_at,media_type,media_path,duration_seconds&limit=' + max;
   if (before) query += '&created_at=lt.' + encodeURIComponent(String(before)) + '&order=created_at.desc';
-  else if (after) query += '&created_at=gt.' + encodeURIComponent(String(after)) + '&order=created_at.asc';
+  else if (after) query += '&created_at=gte.' + encodeURIComponent(String(after)) + '&order=created_at.asc';
   else query += '&order=created_at.desc';
   const rows = supabaseRest_('GET',query,null) || [];
   if (!after) rows.reverse();
