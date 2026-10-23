@@ -21,6 +21,18 @@ This is the Google backend for the clean-start Anonyms frontend now committed to
 6. Do not share the spreadsheet or Drive folder publicly. Keep both passwords and the script editor access private.
 7. The current frontend is configured with the existing `/exec` deployment URL. If you create a new Apps Script deployment, update `API_URL` in `script.js` to the new URL before publishing.
 
+## Supabase login audit events (optional)
+
+The live chat, credentials, sessions, messages, gallery, media and WebRTC signaling continue to use Google Apps Script, Google Sheets and Google Drive. Supabase is used here only as a separate login audit sink; do not switch the frontend to Supabase Auth as part of this setup.
+
+To enable audit logging, open Apps Script **Project Settings → Script Properties** and add:
+- `SUPABASE_URL`: your Supabase project URL (for example, `https://YOUR_PROJECT_REF.supabase.co`)
+- `SUPABASE_SERVICE_ROLE_KEY`: the project's service-role secret. Keep it only in Apps Script Script Properties; never add it to this repository, the frontend, or a chat message.
+
+Run the SQL in `supabase/login_events.sql` in the Supabase SQL Editor. Then copy this repository's updated `google-backend/Code.gs` into the Apps Script editor, save, and deploy a **new version** of the existing Web App. Apps Script's URL should remain the same when editing the existing deployment.
+
+The helper writes only the approved username, event type, and generated request ID. It never sends a password or session token. Logging is best-effort: if Supabase is temporarily unavailable, normal chat login/logout should continue. After deployment, test a successful login, an incorrect password, and logout, then confirm the three event types appear in `public.login_events`. Do not test using real passwords in logs or screenshots.
+
 ## Video calls
 - The chat includes a compact left-side panel with Request to Start Video, incoming Accept/Decline, remote-video-only display, and one End button.
 - Camera and microphone permissions are requested only after the recipient accepts. The page does not show a self-view or offer mute/camera-toggle controls.
