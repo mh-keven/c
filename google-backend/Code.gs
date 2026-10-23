@@ -14,7 +14,9 @@ const CFG = {
   SHEETS: {
     Messages: ['id', 'username', 'message', 'created_at', 'media_type', 'media_id', 'media_url', 'media_mime', 'duration_seconds'],
     Gallery: ['id', 'uploader', 'title', 'caption', 'media_type', 'source', 'drive_file_id', 'youtube_id', 'mime_type', 'created_at'],
-    Sessions: ['token_hash', 'username', 'created_at', 'expires_at', 'last_seen']
+    Sessions: ['token_hash', 'username', 'created_at', 'expires_at', 'last_seen'],
+    Likes: ['gallery_id', 'username', 'created_at'],
+    Comments: ['id', 'gallery_id', 'username', 'comment', 'created_at']
   }
 };
 
@@ -28,7 +30,10 @@ function doGet(e) {
     else {
       const user = requireSession_(p.token);
       if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(p.before, p.limit) };
-      else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_() };
+      else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
+      else if (action === 'toggleLike') result = toggleLike_(user, payload.gallery_id);
+      else if (action === 'galleryComments') result = getGalleryComments_(payload.gallery_id);
+      else if (action === 'addComment') result = addGalleryComment_(user, payload.gallery_id, payload.comment);
       else if (action === 'whoami') result = { ok: true, user: user };
       else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user) };
       else throw new Error('Unknown action');
@@ -169,13 +174,54 @@ function getMessages_(before, limit) {
   }));
 }
 
-function getGallery_() {
+function getGallery_(activeGalleryUser) {
+  const likes = rowsAsObjects_('Likes');
+  const comments = rowsAsObjects_('Comments');
+  return rowsAsObjects_('Gallery').reverse().slice(0, 300).map(r => {
+    const itemLikes = likes.filter(l => String(l.gallery_id) === String(r.id));
+    return {
+      id: r.id, uploader: r.uploader, title: r.title, caption: r.caption, media_type: r.media_type,
+      source: r.source, drive_file_id: r.drive_file_id, youtube_id: r.youtube_id, mime_type: r.mime_type,
+      media_url: r.drive_file_id ? ('https://drive.google.com/uc?export=view&id=' + r.drive_file_id) : '',
+      preview_url: r.drive_file_id ? ('https://drive.google.com/file/d/' + r.drive_file_id + '/preview') : '',
+      created_at: r.created_at, likes: itemLikes.map(l => l.username), liked_by_me: itemLikes.some(l => l.username === activeGalleryUser),
+      comment_count: comments.filter(c => String(c.gallery_id) === String(r.id)).length
+    };
+  });
+}
+
   return rowsAsObjects_('Gallery').reverse().slice(0, 300).map(r => ({
     id: r.id, uploader: r.uploader, title: r.title, caption: r.caption, media_type: r.media_type,
     source: r.source, drive_file_id: r.drive_file_id, youtube_id: r.youtube_id, mime_type: r.mime_type, media_url: r.drive_file_id ? ('https://drive.google.com/uc?export=view&id=' + r.drive_file_id) : '', preview_url: r.drive_file_id ? ('https://drive.google.com/file/d/' + r.drive_file_id + '/preview') : '', created_at: r.created_at
   }));
 }
 
+function toggleLike_(user, galleryId) {
+  galleryId = String(galleryId || '');
+  if (!rowsAsObjects_('Gallery').some(r => String(r.id) === galleryId)) throw new Error('Gallery item not found.');
+  const sh = sheet_('Likes'), rows = rowsAsObjects_('Likes');
+  const existing = rows.find(r => String(r.gallery_id) === galleryId && r.username === user);
+  if (existing) {
+    const values = sh.getDataRange().getValues();
+    for (let i = values.length - 1; i >= 1; i--) if (String(values[i][0]) === galleryId && values[i][1] === user) { sh.deleteRow(i + 1); break; }
+    return { ok: true, liked: false };
+  }
+  withLock_(() => sh.appendRow([galleryId, user, new Date().toISOString()]));
+  return { ok: true, liked: true };
+}
+function getGalleryComments_(galleryId) {
+  galleryId = String(galleryId || '');
+  if (!rowsAsObjects_('Gallery').some(r => String(r.id) === galleryId)) throw new Error('Gallery item not found.');
+  return { ok: true, comments: rowsAsObjects_('Comments').filter(r => String(r.gallery_id) === galleryId).slice(-100) };
+}
+function addGalleryComment_(user, galleryId, comment) {
+  galleryId = String(galleryId || ''); comment = String(comment || '').trim();
+  if (!rowsAsObjects_('Gallery').some(r => String(r.id) === galleryId)) throw new Error('Gallery item not found.');
+  if (!comment || comment.length > 1000) throw new Error('Comment must contain 1–1000 characters.');
+  const item = { id: Utilities.getUuid(), gallery_id: galleryId, username: user, comment: comment, created_at: new Date().toISOString() };
+  withLock_(() => sheet_('Comments').appendRow([item.id, item.gallery_id, item.username, item.comment, item.created_at]));
+  return { ok: true, comment: item };
+}
 function peerStatus_(user) {
   const rows = rowsAsObjects_('Sessions').filter(r => r.username !== user && new Date(r.expires_at).getTime() > Date.now());
   if (!rows.length) return { username: user === 'Keven' ? 'Zubii' : 'Keven', online: false, last_seen: null };
