@@ -1,10 +1,10 @@
-/* Anonyms frontend — Google Apps Script API only. No Supabase SDK or credentials. */
+/* Anonyms chat: direct Supabase RPC and signed Storage upload when configured. No service-role key in the browser. */
 (() => {
   'use strict';
   // Paste the deployed Apps Script Web App URL ending in /exec here.
   const API_URL = 'https://script.google.com/macros/s/AKfycbyW_06rlpggyk054n43VbwYhgJarWsoV7CRR8iRm43Lvi_ghUKzSJeOJoM7t5pF6KcsAQ/exec';
   const $ = id => document.getElementById(id);
-  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0 };
+  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0 };
   const EMOJIS = ['❤️','😀','😃','😄','😁','😆','😂','🤣','😊','😉','😍','🥰','😘','😎','🥳','😏','😔','🥺','😢','😭','😤','😡','🤯','😳','😱','🤗','🤔','😶','🙄','😮','😴','🤒','🫠','🫡','🫣','🫤','👍','🙏','✨','💖','💗','💞','🌹','🫶','🔥','🎉'];
   let pollTimer = null, statusTimer = null;
 
@@ -30,7 +30,7 @@
       });
       let finished = false;
       const cleanup = () => { window.removeEventListener('message', onMessage); form.remove(); frame.remove(); clearTimeout(timeout); };
-      const timeout = setTimeout(() => { if (!finished) { finished = true; cleanup(); reject(new Error('Google backend timed out. The Google Sheets service may be busy; please try again.')); } }, 20000);
+      const timeout = setTimeout(() => { if (!finished) { finished = true; cleanup(); reject(new Error('Anonyms backend timed out. Please try again.')); } }, 20000);
       const onMessage = event => {
         if (event.data?.type !== 'anonyms-api' || event.data?.nonce !== nonce) return;
         if (finished) return;
@@ -45,6 +45,133 @@
     });
   }
 
+  function applySupabaseConfig(result) {
+    state.supabaseUrl = String(result?.supabase_url || '').replace(/\/+$/, '');
+    state.supabaseAnonKey = String(result?.supabase_anon_key || '');
+    state.fastChatDisabled = false;
+    if (state.supabaseUrl) sessionStorage.setItem('anonyms_supabase_url', state.supabaseUrl);
+    else sessionStorage.removeItem('anonyms_supabase_url');
+    if (state.supabaseAnonKey) sessionStorage.setItem('anonyms_supabase_anon_key', state.supabaseAnonKey);
+    else sessionStorage.removeItem('anonyms_supabase_anon_key');
+  }
+
+  function hasDirectSupabaseConfig() {
+    return !!(state.supabaseUrl && state.supabaseAnonKey && !state.fastChatDisabled);
+  }
+
+  async function sessionTokenHash() {
+    if (!state.token || !crypto.subtle) throw new Error('Secure session hashing is not available in this browser.');
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(state.token));
+    let binary = '';
+    new Uint8Array(digest).forEach(byte => { binary += String.fromCharCode(byte); });
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+
+  async function fastSupabaseRpc(name, args) {
+    const response = await fetch(state.supabaseUrl + '/rest/v1/rpc/' + encodeURIComponent(name), {
+      method: 'POST',
+      headers: {
+        apikey: state.supabaseAnonKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(args),
+      cache: 'no-store'
+    });
+    const body = await response.text();
+    if (!response.ok) throw new Error('Direct Supabase request failed (' + response.status + ').');
+    return body ? JSON.parse(body) : null;
+  }
+
+  async function fetchChatMessages(options = {}) {
+    if (hasDirectSupabaseConfig()) {
+      try {
+        const rows = await fastSupabaseRpc('anonyms_fast_messages', {
+          p_token_hash: await sessionTokenHash(),
+          p_before: options.before || null,
+          p_after: options.after || null,
+          p_limit: options.limit || 200
+        });
+        return (Array.isArray(rows) ? rows : []).map(row => ({
+          id: row.id, username: row.username, message: row.message || '',
+          created_at: row.created_at, media_type: row.media_type || 'text',
+          media_id: row.media_path || '', media_url: '', media_mime: '',
+          duration_seconds: row.duration_seconds || ''
+        }));
+      } catch (error) {
+        // Don't double every poll if SQL setup or public-key configuration isn't ready yet.
+        state.fastChatDisabled = true;
+        console.warn('Direct Supabase chat is unavailable; using the existing backend path.', error);
+      }
+    }
+    const result = await post('messages', {
+      token: state.token, limit: options.limit || 200,
+      before: options.before || '', after: options.after || ''
+    });
+    return result.messages || [];
+  }
+
+  async function sendChatMessage(message) {
+    if (hasDirectSupabaseConfig()) {
+      try {
+        const row = await fastSupabaseRpc('anonyms_fast_send', {
+          p_token_hash: await sessionTokenHash(),
+          p_message: message
+        });
+        return {ok:true, message:row};
+      } catch (error) {
+        state.fastChatDisabled = true;
+        console.warn('Direct Supabase send is unavailable; using the existing backend path.', error);
+      }
+    }
+    return post('sendMessage', {token:state.token, message});
+  }
+
+  async function hydrateAudioUrls(messages) {
+    const paths = Array.from(new Set(messages
+      .filter(message => message.media_type === 'audio' && message.media_id && !message.media_url)
+      .map(message => message.media_id)));
+    for (let i = 0; i < paths.length; i += 50) {
+      const result = await post('signAudioPaths', {token:state.token, paths:paths.slice(i, i + 50)});
+      const urls = result.urls || {};
+      messages.forEach(message => {
+        if (urls[message.media_id]) message.media_url = urls[message.media_id];
+      });
+    }
+    return messages;
+  }
+
+  async function sendVoiceBlob(blob, filename, duration) {
+    const mime = blob.type || 'audio/webm';
+    if (state.supabaseUrl && state.supabaseAnonKey) {
+      // Browser uploads audio bytes straight to private Supabase Storage; the
+      // signed URL is short-lived and scoped to a single object path.
+      const prepared = await post('createVoiceUpload', {
+        token:state.token, filename, mime_type:mime, duration_seconds:duration
+      });
+      const form = new FormData();
+      form.append('cacheControl', '3600');
+      form.append('', blob, filename);
+      const response = await fetch(prepared.upload_url, {
+        method:'PUT',
+        headers:{apikey:state.supabaseAnonKey, 'x-upsert':'false'},
+        body:form
+      });
+      if (!response.ok) throw new Error('Supabase Storage upload failed (' + response.status + ').');
+      return post('finalizeVoiceNote', {
+        token:state.token, path:prepared.path, mime_type:mime, duration_seconds:duration
+      });
+    }
+
+    // Safe compatibility path for deployments that have not configured the public anon key yet.
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = () => reject(new Error('Could not read the voice note.'));
+      reader.readAsDataURL(blob);
+    });
+    return post('sendVoiceNote', {token:state.token, filename, mime_type:mime, size:blob.size, base64, duration_seconds:duration});
+  }
+
   $('login-form').addEventListener('submit', async event => {
     event.preventDefault(); loginError('');
     const enteredUsername = $('username').value.trim();
@@ -55,6 +182,7 @@
     try {
       const result = await post('login', { username, password });
       state.token = result.token; state.user = result.user;
+      applySupabaseConfig(result);
       sessionStorage.setItem('anonyms_token', state.token); sessionStorage.setItem('anonyms_user', state.user);
       $('password').value = ''; await openApp();
     } catch (error) { loginError(error.message); }
@@ -65,14 +193,36 @@
     $('login-screen').hidden = true; $('app-screen').hidden = false;
     $('conn-status').textContent = 'Connected as ' + state.user; $('conn-status').dataset.state = 'online';
     await Promise.all([loadMessages(true), loadGallery(), loadStatus()]);
-    clearInterval(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
-    pollTimer = setInterval(() => { if (!document.hidden && !state.messagePolling) loadMessages(false).catch(showApiError); }, 1200);
+    clearTimeout(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
+    // Poll only after the previous request finishes; while the chat is visible,
+    // a short delay after each response keeps delivery responsive without overlap.
+    scheduleMessagePoll(100);
     statusTimer = setInterval(async () => { if (!document.hidden) { try { await post('touch', {token: state.token}); await loadStatus(); } catch (_) {} } }, 8000);
     state.callTimer = setInterval(() => { if (!document.hidden) pollCallState().catch(() => {}); }, 1400);
     pollCallState().catch(() => {});
   }
 
   function showApiError(error) { banner(error.message || 'Something went wrong.'); }
+
+  function scheduleMessagePoll(delay = 500) {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(async () => {
+      if (!state.token) return;
+      if (document.hidden) { scheduleMessagePoll(1500); return; }
+      try {
+        await loadMessages(false);
+        scheduleMessagePoll(500);
+      } catch (error) {
+        // Back off briefly on transient errors rather than hammering the backend.
+        scheduleMessagePoll(1600);
+      }
+    }, delay);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && state.token) scheduleMessagePoll(50);
+  });
+
   function syncComposerActions() {
     const hasText = !!$('message-input').value.trim();
     $('send-btn').hidden = !hasText;
@@ -84,37 +234,56 @@
     try { await post('logout', { token: state.token }); } catch (_) {}
     state.token = ''; state.user = ''; state.messages = []; state.gallery = []; state.newest = ''; state.before = '';
     sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user');
+    sessionStorage.removeItem('anonyms_supabase_url'); sessionStorage.removeItem('anonyms_supabase_anon_key');
+    state.supabaseUrl = ''; state.supabaseAnonKey = ''; state.fastChatDisabled = false;
     $('app-screen').hidden = true; $('login-screen').hidden = false; $('message-list').replaceChildren(); $('gallery-grid').replaceChildren(); banner('');
   }
   $('logout-btn').addEventListener('click', logout);
   syncComposerActions();
 
   async function loadMessages(initial) {
-    if (!initial && state.messagePolling) return;
+    if (!initial && state.messagePolling) return false;
     state.messagePolling = true;
     try {
-      const result = await post('messages', {token:state.token, limit:200, before:'', after:initial ? '' : state.newest});
+      const received = await fetchChatMessages({
+        limit:200,
+        before:initial ? '' : '',
+        after:initial ? '' : state.newest
+      });
+      await hydrateAudioUrls(received);
       if (initial) {
-        state.messages = result.messages || []; state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
+        state.messages = received;
+        state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
         state.before = state.messages.length ? state.messages[0].created_at : '';
-        renderMessages(); return;
+        renderMessages();
+        return false;
+      }
+
+      // Move the cursor from persisted server rows only—not optimistic local messages.
+      for (const message of received) {
+        if (!state.newest || String(message.created_at) > String(state.newest)) state.newest = message.created_at;
       }
       const known = new Set(state.messages.map(old => old.id));
-      const fresh = (result.messages || []).filter(m => !known.has(m.id));
-      if (!fresh.length) return;
-      const scroller = $('messages'), nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
-      state.messages.push(...fresh); state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-      state.newest = state.messages[state.messages.length - 1].created_at; state.before = state.messages[0].created_at;
+      const fresh = received.filter(message => !known.has(message.id));
+      if (!fresh.length) return false;
+
+      const scroller = $('messages');
+      const nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
+      state.messages.push(...fresh);
+      state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+      state.before = state.messages.length ? state.messages[0].created_at : '';
+      state.lastChatActivity = Date.now();
       renderMessages();
-      if (nearBottom || fresh.some(m => m.username === state.user)) scroller.scrollTop = scroller.scrollHeight;
+      if (nearBottom || fresh.some(message => message.username === state.user)) scroller.scrollTop = scroller.scrollHeight;
+      return true;
     } finally { state.messagePolling = false; }
   }
   $('load-earlier').addEventListener('click', async () => {
     if (!state.before) return;
     $('load-earlier').disabled = true;
     try {
-      const result = await post('messages', { token: state.token, limit: 200, before: state.before });
-      const old = result.messages || [];
+      const old = await fetchChatMessages({before:state.before, limit:200});
+      await hydrateAudioUrls(old);
       const ids = new Set(state.messages.map(m => m.id));
       const unique = old.filter(m => !ids.has(m.id));
       if (unique.length) { state.messages.unshift(...unique); state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at)); state.before = state.messages[0].created_at; renderMessages(); }
@@ -169,19 +338,20 @@
     state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
     input.value = ''; input.style.height = 'auto'; syncComposerActions(); renderMessages(); $('messages').scrollTop = $('messages').scrollHeight;
     try {
-      const result = await post('sendMessage', {token:state.token, message});
+      const result = await sendChatMessage(message);
       state.messages = state.messages.filter(m => m.id !== pendingId);
       if (result.message && !state.messages.some(m => m.id === result.message.id)) state.messages.push(result.message);
       state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-      state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
+      state.lastChatActivity = Date.now();
       renderMessages(); $('messages').scrollTop = $('messages').scrollHeight; banner('');
+      scheduleMessagePoll(50);
     } catch (error) {
       state.messages = state.messages.filter(m => m.id !== pendingId);
       if (!input.value) input.value = message;
       syncComposerActions(); renderMessages(); banner(error.message);
     } finally { state.busy = false; $('send-btn').disabled = false; input.focus(); }
   });
-  $('message-input').addEventListener('input', () => { const el = $('message-input'); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; syncComposerActions(); });
+  $('message-input').addEventListener('input', () => { const el = $('message-input'); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; state.lastChatActivity = Date.now(); syncComposerActions(); });
   $('message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('composer').requestSubmit(); } });
   $('emoji-btn').addEventListener('click', () => {
     const panel = $('emoji-panel'); panel.hidden = !panel.hidden;
@@ -217,19 +387,15 @@
         state.recordingChunks = [];
         button.disabled = true;
         try {
-          const filename = 'voice-note-' + Date.now() + (blob.type.includes('ogg') ? '.ogg' : '.webm');
-          const started = await post('uploadStart', {token:state.token, purpose:'voice', filename, mime_type:blob.type || 'audio/webm', size:blob.size, title:'Voice note', duration_seconds:duration});
-          let result = null;
-          const chunkSize = 2 * 1024 * 1024;
-          for (let offset = 0; offset < blob.size; offset += chunkSize) {
-            const end = Math.min(offset + chunkSize, blob.size), chunk = blob.slice(offset, end);
-            const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read voice note chunk.')); reader.readAsDataURL(chunk); });
-            result = await post('uploadChunk', {token:state.token, upload_id:started.upload_id, start:offset, end:end-1, total:blob.size, base64});
-          }
-          if (result?.message && !state.messages.some(m => m.id === result.message.id)) state.messages.push(result.message);
+          const maxVoiceBytes = 8 * 1024 * 1024;
+          if (!blob.size || blob.size > maxVoiceBytes) throw new Error('Voice note is too large. Please record a shorter note and try again.');
+          const filename = 'voice-note-' + Date.now() + (blob.type.includes('ogg') ? '.ogg' : blob.type.includes('mp4') ? '.m4a' : '.webm');
+          const result = await sendVoiceBlob(blob, filename, duration);
+          if (result.message && !state.messages.some(message => message.id === result.message.id)) state.messages.push(result.message);
           state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-          state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
+          state.lastChatActivity = Date.now();
           renderMessages(); $('messages').scrollTop = $('messages').scrollHeight; banner('');
+          scheduleMessagePoll(50);
         } catch (error) { banner(error.message || 'Voice note failed to send.'); }
         finally { button.disabled = false; button.classList.remove('recording'); button.textContent = '🎙️'; button.title = 'Record voice note'; button.setAttribute('aria-label','Record voice note'); state.recorder = null; syncComposerActions(); }
       };
@@ -604,6 +770,6 @@
 
   // Restore session only after the backend verifies it.
   if (state.token && state.user) {
-    post('whoami', {token:state.token}).then(openApp).catch(() => { state.token = ''; state.user = ''; sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user'); });
+    post('whoami', {token:state.token}).then(result => { applySupabaseConfig(result); return openApp(); }).catch(() => { state.token = ''; state.user = ''; sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user'); });
   }
 })();

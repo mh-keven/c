@@ -55,10 +55,11 @@ function doPost(e) {
       const user = requireSession_(payload.token);
       if (action === 'logout') {
         revokeSession_(payload.token);
+        revokeSupabaseSession_(payload.token);
         logSupabaseLoginEvent_(user, 'logout');
         result = { ok: true };
       }
-      else if (action === 'whoami') result = { ok: true, user: user };
+      else if (action === 'whoami') result = supabaseClientSession_(user, payload.token);
       else if (action === 'messages') result = { ok: true, user: user, messages: getSupabaseMessages_(payload.before, payload.limit, payload.after) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
       else if (action === 'toggleLike') result = toggleSupabaseLike_(user, payload.gallery_id);
@@ -71,6 +72,9 @@ function doPost(e) {
       else if (action === 'uploadStart') result = startResumableUpload_(user, payload);
       else if (action === 'uploadChunk') result = uploadChunk_(user, payload);
       else if (action === 'sendVoiceNote') result = sendVoiceNote_(user, payload);
+      else if (action === 'signAudioPaths') result = signAudioPaths_(user, payload.paths);
+      else if (action === 'createVoiceUpload') result = createSignedVoiceUpload_(user, payload);
+      else if (action === 'finalizeVoiceNote') result = finalizeSupabaseVoiceNote_(user, payload);
       else if (action === 'touch') { touchSession_(payload.token); result = { ok: true }; }
       else if (action === 'callRequest') result = requestCall_(user);
       else if (action === 'callRespond') result = respondCall_(user, payload.call_id, payload.decision);
@@ -135,8 +139,105 @@ function login_(username, password) {
   const now = new Date();
   const expires = new Date(now.getTime() + CFG.SESSION_TTL_SECONDS * 1000);
   withLock_(() => sheet_('Sessions').appendRow([hash, username, now.toISOString(), expires.toISOString(), now.toISOString()]));
+  registerSupabaseSession_(hash, username, expires.toISOString());
   logSupabaseLoginEvent_(username, 'login_success');
-  return { ok: true, user: username, token: token, expires_at: expires.toISOString() };
+  return Object.assign({ ok: true, user: username, token: token, expires_at: expires.toISOString() }, supabaseClientConfig_());
+}
+
+function supabaseClientConfig_() {
+  const props = PropertiesService.getScriptProperties();
+  const candidate = String(props.getProperty('SUPABASE_ANON_KEY') || '');
+  const serviceRole = String(props.getProperty('SUPABASE_SERVICE_ROLE_KEY') || '');
+  // Fail closed if someone accidentally copies the secret key into the public-key property.
+  const isSecret = !candidate || candidate === serviceRole || candidate.indexOf('sb_secret_') === 0;
+  return {
+    supabase_url: String(props.getProperty('SUPABASE_URL') || '').replace(/\/+$/, ''),
+    supabase_anon_key: isSecret ? '' : candidate
+  };
+}
+
+function registerSupabaseSession_(tokenHash, username, expiresAt) {
+  try {
+    if (!supabaseClientConfig_().supabase_url || !PropertiesService.getScriptProperties().getProperty('SUPABASE_SERVICE_ROLE_KEY')) return;
+    supabaseRest_('POST','/rest/v1/anonyms_sessions', [{
+      token_hash:String(tokenHash), username:username, expires_at:expiresAt, revoked_at:null
+    }], 'resolution=merge-duplicates,return=minimal');
+  } catch (error) {
+    // The original Apps Script path remains available until the direct-chat SQL migration is installed.
+    console.warn('Fast-chat session sync is unavailable: ' + safeError_(error));
+  }
+}
+
+function supabaseClientSession_(user, token) {
+  const hash = digest_(String(token || ''));
+  const session = rowsAsObjects_('Sessions').find(row => row.token_hash === hash && row.username === user);
+  if (session) registerSupabaseSession_(hash, user, session.expires_at);
+  return Object.assign({ok:true,user:user}, supabaseClientConfig_());
+}
+
+function revokeSupabaseSession_(token) {
+  try {
+    const hash = digest_(String(token || ''));
+    supabaseRest_('PATCH','/rest/v1/anonyms_sessions?token_hash=eq.' + encodeURIComponent(hash), {
+      revoked_at:new Date().toISOString()
+    }, 'return=minimal');
+  } catch (error) {
+    console.warn('Fast-chat session revocation is unavailable: ' + safeError_(error));
+  }
+}
+
+function signAudioPaths_(user, paths) {
+  const input = Array.isArray(paths) ? paths : [];
+  if (input.length > 50) throw new Error('Please request voice-note links in groups of 50 or fewer.');
+  const safe = Array.from(new Set(input.map(path => String(path || '')))).filter(path =>
+    /^(keven|zubii)\/[0-9a-f-]+\.(webm|ogg|m4a|mp3|wav)$/i.test(path)
+  );
+  const urls = {};
+  safe.forEach(path => { urls[path] = supabaseSignedAudioUrl_(path); });
+  return {ok:true,urls:urls};
+}
+
+function createSignedVoiceUpload_(user, payload) {
+  const mime = String(payload.mime_type || 'audio/webm').split(';')[0].toLowerCase();
+  const supported = ['audio/webm','audio/ogg','audio/mp4','audio/mpeg','audio/aac','audio/wav','audio/x-m4a'];
+  if (supported.indexOf(mime) < 0) throw new Error('This audio format is not supported.');
+  const extension = mime.includes('ogg') ? 'ogg' : mime.includes('mp4') || mime.includes('m4a') ? 'm4a' : mime.includes('mpeg') ? 'mp3' : mime.includes('wav') ? 'wav' : 'webm';
+  const path = user.toLowerCase() + '/' + Utilities.getUuid() + '.' + extension;
+  const props = PropertiesService.getScriptProperties();
+  const base = String(props.getProperty('SUPABASE_URL') || '').replace(/\/+$/, '');
+  const key = props.getProperty('SUPABASE_SERVICE_ROLE_KEY');
+  if (!base || !key) throw new Error('Supabase backend is not configured.');
+  const endpoint = base + '/storage/v1/object/upload/sign/anonyms-voice-notes/' + path.split('/').map(encodeURIComponent).join('/');
+  const response = UrlFetchApp.fetch(endpoint, {
+    method:'post', contentType:'application/json', headers:{apikey:key,Authorization:'Bearer '+key},
+    payload:'{}', muteHttpExceptions:true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
+    throw new Error('Could not prepare a direct voice-note upload (' + response.getResponseCode() + ').');
+  }
+  const data = JSON.parse(response.getContentText() || '{}');
+  const signedUrl = String(data.signedUrl || data.signedURL || data.url || '');
+  if (!signedUrl) throw new Error('Supabase did not return a signed upload URL.');
+  const uploadUrl = signedUrl.startsWith('http') ? signedUrl : signedUrl.startsWith('/storage/v1/') ? base + signedUrl : base + '/storage/v1' + (signedUrl.startsWith('/') ? signedUrl : '/' + signedUrl);
+  return {ok:true,path:path,upload_url:uploadUrl};
+}
+
+function finalizeSupabaseVoiceNote_(user, payload) {
+  const path = String(payload.path || '');
+  const allowedPath = /^(keven|zubii)\/[0-9a-f-]+\.(webm|ogg|m4a|mp3|wav)$/i.test(path);
+  if (!allowedPath || path.split('/')[0] !== user.toLowerCase()) throw new Error('This voice note upload does not belong to your session.');
+  const mime = String(payload.mime_type || 'audio/webm').split(';')[0].toLowerCase();
+  const duration = Math.max(1, Math.min(3600, Number(payload.duration_seconds) || 1));
+  // Signing the private object's read URL also verifies that the uploaded object exists.
+  const mediaUrl = supabaseSignedAudioUrl_(path);
+  const row = supabaseRest_('POST','/rest/v1/anonyms_messages',[{
+    username:user, message:'Voice note', media_type:'audio', media_path:path,
+    duration_seconds:duration, created_at:new Date().toISOString()
+  }],'return=representation')[0];
+  return {ok:true,message:{
+    id:row.id,username:row.username,message:'Voice note',created_at:row.created_at,
+    media_type:'audio',media_id:path,media_url:mediaUrl,media_mime:mime,duration_seconds:row.duration_seconds
+  }};
 }
 
 /** Best-effort audit logging. Credentials and session tokens are never sent to Supabase. */
@@ -206,6 +307,10 @@ function supabaseStorageUpload_(path, blob) {
 }
 function supabaseSignedAudioUrl_(path) {
   if (!path) return '';
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'anonyms_audio_url_' + digest_(String(path));
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
   const props = PropertiesService.getScriptProperties();
   const base = String(props.getProperty('SUPABASE_URL') || '').replace(/\/+$/, '');
   const key = props.getProperty('SUPABASE_SERVICE_ROLE_KEY');
@@ -216,13 +321,15 @@ function supabaseSignedAudioUrl_(path) {
   if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) throw new Error('Could not create a secure voice-note link.');
   const result = JSON.parse(response.getContentText() || '{}');
   const signed = result.signedURL || result.signedUrl || '';
-  return signed.startsWith('http') ? signed : base + '/storage/v1' + (signed.startsWith('/') ? signed : '/' + signed);
+  const url = signed.startsWith('http') ? signed : base + '/storage/v1' + (signed.startsWith('/') ? signed : '/' + signed);
+  cache.put(cacheKey, url, 21600);
+  return url;
 }
 function getSupabaseMessages_(before, limit, after) {
   const max = Math.min(Math.max(Number(limit) || 200,1),200);
   let query = '/rest/v1/anonyms_messages?select=id,username,message,created_at,media_type,media_path,duration_seconds&limit=' + max;
   if (before) query += '&created_at=lt.' + encodeURIComponent(String(before)) + '&order=created_at.desc';
-  else if (after) query += '&created_at=gte.' + encodeURIComponent(String(after)) + '&order=created_at.asc';
+  else if (after) query += '&created_at=gt.' + encodeURIComponent(String(after)) + '&order=created_at.asc';
   else query += '&order=created_at.desc';
   const rows = supabaseRest_('GET',query,null) || [];
   if (!after) rows.reverse();
@@ -234,14 +341,22 @@ function sendSupabaseMessage_(user, message) {
   const row = supabaseRest_('POST','/rest/v1/anonyms_messages',[{username:user,message:message,media_type:'text',created_at:new Date().toISOString()}],'return=representation')[0];
   return {ok:true,message:{id:row.id,username:row.username,message:row.message,created_at:row.created_at,media_type:'text'}};
 }
-function saveSupabaseVoiceNote_(user, driveFile, mime, duration) {
+function saveSupabaseVoiceNoteBlob_(user, blob, mime, duration) {
   const id = Utilities.getUuid(), now = new Date().toISOString();
-  const path = user.toLowerCase() + '/' + id + '.' + (String(mime).includes('ogg') ? 'ogg' : String(mime).includes('mp4') ? 'm4a' : 'webm');
-  const blob = driveFile.getBlob().setContentType(mime || 'audio/webm');
+  const safeMime = String(mime || blob.getContentType() || 'audio/webm').split(';')[0];
+  const extension = safeMime.includes('ogg') ? 'ogg' : safeMime.includes('mp4') || safeMime.includes('m4a') ? 'm4a' : safeMime.includes('mpeg') ? 'mp3' : safeMime.includes('wav') ? 'wav' : 'webm';
+  const path = user.toLowerCase() + '/' + id + '.' + extension;
+  blob.setContentType(safeMime);
   supabaseStorageUpload_(path,blob);
   const row = supabaseRest_('POST','/rest/v1/anonyms_messages',[{id:id,username:user,message:'Voice note',media_type:'audio',media_path:path,duration_seconds:Math.max(1,Number(duration)||1),created_at:now}],'return=representation')[0];
+  return {ok:true,message:{id:row.id,username:row.username,message:'Voice note',created_at:row.created_at,media_type:'audio',media_id:path,media_url:supabaseSignedAudioUrl_(path),media_mime:safeMime,duration_seconds:row.duration_seconds}};
+}
+
+// Compatibility for a previously started resumable upload. New clients avoid this Drive detour.
+function saveSupabaseVoiceNote_(user, driveFile, mime, duration) {
+  const result = saveSupabaseVoiceNoteBlob_(user, driveFile.getBlob(), mime, duration);
   try { driveFile.setTrashed(true); } catch (_) {}
-  return {ok:true,message:{id:row.id,username:row.username,message:'Voice note',created_at:row.created_at,media_type:'audio',media_id:path,media_url:supabaseSignedAudioUrl_(path),media_mime:mime,duration_seconds:row.duration_seconds}};
+  return result;
 }
 function toggleSupabaseLike_(user, galleryId) {
   galleryId = String(galleryId || '');
@@ -320,6 +435,7 @@ function grantPrivateViewers_(fileId) {
 function startResumableUpload_(user, payload) {
   const name = String(payload.filename || 'upload').replace(/[\\/\\r\\n]/g, '_').slice(0, 160);
   const purpose = String(payload.purpose || 'gallery');
+  if (purpose === 'voice') throw new Error('Voice notes now upload directly to Supabase. Refresh Anonyms and try again.');
   const mime = inferMediaMime_(name, payload.mime_type || '');
   const type = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : '';
   const isVoice = purpose === 'voice' && mime.startsWith('audio/');
@@ -393,20 +509,15 @@ function uploadChunk_(user, payload) {
 }
 
 function sendVoiceNote_(user, payload) {
-  const mime = String(payload.mime_type || 'audio/webm');
+  const mime = String(payload.mime_type || 'audio/webm').split(';')[0];
   if (!mime.startsWith('audio/')) throw new Error('This is not a supported audio recording.');
   const bytes = Utilities.base64Decode(String(payload.base64 || ''));
-  if (!bytes.length || bytes.length > CFG.MAX_UPLOAD_BYTES) throw new Error('Voice note is too large. Record a shorter note and try again.');
+  if (!bytes.length || bytes.length > CFG.MAX_UPLOAD_BYTES) throw new Error('Voice note is too large. Please record a shorter note and try again.');
+  // Fallback for clients without the public key configured: still skip Google Drive.
   const name = String(payload.filename || 'voice-note.webm').replace(/[\\/\\r\\n]/g,'_').slice(0,160);
-  const folder = DriveApp.getFolderById(PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY));
-  const file = folder.createFile(Utilities.newBlob(bytes,mime,name));
-  // Keep legacy voice uploads on the same private Supabase Storage path as chunked uploads.
-  try {
-    const saved = saveSupabaseVoiceNote_(user,file,mime,payload.duration_seconds);
-    return {ok:true,message:saved.message};
-  } catch (error) {
-    throw new Error('Voice note reached Drive but could not be saved to Supabase. ' + safeError_(error));
-  }
+  const blob = Utilities.newBlob(bytes,mime,name);
+  const saved = saveSupabaseVoiceNoteBlob_(user,blob,mime,payload.duration_seconds);
+  return {ok:true,message:saved.message};
 }
 
 function uploadMedia_(user, payload) {
