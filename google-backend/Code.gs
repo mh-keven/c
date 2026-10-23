@@ -215,7 +215,7 @@ function normalizeUser_(value) {
   return name === 'keven' ? 'Keven' : name === 'zubii' ? 'Zubii' : '';
 }
 function youtubeId_(url) {
-  const m = url.match(/(?:youtube\\.com\\/(?:watch\\?(?:.*&)?v=|embed\\/|shorts\\/)|youtu\\.be\\/)([A-Za-z0-9_-]{11})/);
+  const m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
   return m ? m[1] : '';
 }
 function sheet_(name) {
