@@ -146,10 +146,13 @@ function login_(username, password) {
 
 function supabaseClientConfig_() {
   const props = PropertiesService.getScriptProperties();
+  const candidate = String(props.getProperty('SUPABASE_ANON_KEY') || '');
+  const serviceRole = String(props.getProperty('SUPABASE_SERVICE_ROLE_KEY') || '');
+  // Fail closed if someone accidentally copies the secret key into the public-key property.
+  const isSecret = !candidate || candidate === serviceRole || candidate.indexOf('sb_secret_') === 0;
   return {
     supabase_url: String(props.getProperty('SUPABASE_URL') || '').replace(/\/+$/, ''),
-    // This must be the public anon/publishable key, never the service-role key.
-    supabase_anon_key: String(props.getProperty('SUPABASE_ANON_KEY') || '')
+    supabase_anon_key: isSecret ? '' : candidate
   };
 }
 
