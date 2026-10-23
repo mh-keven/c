@@ -1,41 +1,40 @@
-# Anonyms migration plan
+# Anonyms fresh Supabase setup and migration plan
 
 ## Target architecture
-- **GitHub Pages:** keep the existing frontend and URL.
-- **Supabase:** Auth, PostgreSQL, Realtime messaging/presence, voice-note storage, gallery metadata, likes and comments.
-- **Google Drive:** keep private original gallery photos/videos. Supabase stores Drive file IDs and metadata, not original media bytes.
-- **Cloudflare Realtime SFU:** use for live audio/video media. A server-side endpoint must authorize call sessions; never put Cloudflare API secrets in browser JavaScript.
-- **Temporary compatibility:** keep the current Apps Script deployment available until the Supabase version is tested end-to-end.
+- **Current frontend:** still uses Google Apps Script. Do not switch it until the new frontend is implemented and tested.
+- **Supabase:** new Auth-linked profiles, PostgreSQL messages, private voice notes, gallery metadata, likes/comments, call invitation metadata, and Realtime.
+- **Google Drive:** keep private original gallery photos/videos in Drive.
+- **Video calls:** evaluate Cloudflare Realtime SFU or a tested WebRTC + TURN option. The SQL table only stores call state; it does not transport audio/video.
+- **Google Apps Script / Sheets:** preserve as the current working backend until cutover.
 
-## Repository baseline audited
-The current main frontend calls the Google Apps Script /exec endpoint for login, messages, status, gallery, likes/comments, Drive uploads and WebRTC signaling. The Google backend stores records in Sheets. The previous Supabase code used an anonymous Supabase Auth session plus server-side RPC functions (chat_login/chat_whoami) and a private voice-notes bucket. The current main branch no longer includes its base schema, so confirm the existing project functions before applying this additive SQL.
+## Fresh schema
+`supabase/schema.sql` now creates the tables and policies from a clean database foundation. It does not require the old custom RPC functions, does not create Auth users, does not import old records/files, and does not update the deployed frontend.
 
-## Phase 1 — database foundation
-1. Confirm the existing Supabase project URL is https://czqijodfoidzejgwblrf.supabase.co before running anything.
-2. In Supabase Dashboard → SQL Editor, run supabase/schema.sql only after verifying the existing chat_login/current_chat_user functions are present. This file is an additive migration for the prior custom-login model; it does not create new Auth users or replace existing login functions.
-3. Confirm Anonymous sign-ins remain enabled because the old frontend establishes an anonymous Supabase Auth session and verifies the entered username/password through server-side RPC.
-4. Verify the private voice-notes bucket and gallery_likes/gallery_comments policies were created.
-5. Store only the project URL and publishable/anon key in frontend configuration. Never expose a service-role key.
+### Before running
+1. Confirm Supabase Dashboard project ref is `czqijodfoidzejgwblrf`.
+2. Open SQL Editor and run the complete `supabase/schema.sql` from this branch after reviewing it.
+3. Confirm tables `chat_profiles`, `messages`, `gallery_items`, `gallery_likes`, `gallery_comments`, and `call_sessions` exist.
+4. Confirm private `voice-notes` Storage bucket and RLS policies exist.
+5. Create/link the two approved Supabase Auth users (Keven and Zubii) to `chat_profiles` through a trusted admin/server-side setup. Never put passwords or service-role keys in browser code.
+6. The existing frontend remains Apps Script-only. Database creation alone does not enable Supabase messaging.
 
-## Phase 2 — frontend integration
-- Keep the existing custom username/password login flow, backed by Supabase anonymous Auth plus the server-side chat_login/chat_whoami RPCs. Replace Apps Script calls for text messages, voice notes, likes/comments, and presence with Supabase Postgres/Realtime.
-- Keep gallery file uploads/download authorization on the Google Drive backend until a server-side authorization bridge is implemented. Do not expose Apps Script owner credentials or Drive OAuth tokens.
-- Map each signed-in Supabase user to the matching Google account email for Drive permissions. Ensure only Keven and Zubii can view the private Drive folder/files.
-- Keep the old backend available during migration; do not delete data or turn it off yet.
-- Use Realtime subscriptions instead of polling for messages; use Supabase Presence for online status.
+## Important security/design notes
+- The frontend must use Supabase Auth identities and rows in `chat_profiles`; the old Apps Script token cannot be used as a Supabase session.
+- Only approved profiles should be inserted by a trusted setup step. Do not allow public signup to create arbitrary chat profiles.
+- Voice-note object paths must start with the authenticated user's UUID, e.g. `<auth-user-uuid>/<file-name>`.
+- Gallery binaries remain in Drive. Do not make the Drive folder public or expose OAuth/service credentials.
+- Never expose Supabase service-role keys in frontend JavaScript or GitHub.
+- The SQL file is intended for a fresh install; rerunning it is mostly idempotent, but review all changes before applying it to any populated project.
 
-## Phase 3 — video calls
-- Keep browser WebRTC for media, but use Cloudflare Realtime SFU for media transport.
-- Add a server-side endpoint (e.g. Supabase Edge Function) that validates the authenticated Anonyms user and creates/authorizes a call session. Store Cloudflare account/API credentials only as server-side secrets.
-- Use Supabase Realtime Broadcast or protected call-room state for invitations and status. Never let the browser choose arbitrary users or access another private call room.
-- Test on both devices and at least two network types. If Cloudflare setup or free limits are unsuitable, use direct WebRTC with a TURN fallback as a separately tested option.
-
-## Phase 4 — data migration and cutover
-- Export Sheets tabs (Messages, Gallery, Likes, Comments) to CSV/JSON before import.
-- Import only after schema and access policies are verified. Preserve old IDs/timestamps where possible; map Keven/Zubii rows to Supabase Auth UUIDs.
-- Existing voice-note binaries remain in Drive until downloaded/re-uploaded to the private Supabase Storage bucket and playback is tested. The SQL schema does not copy files automatically.
-- Do not migrate private gallery binaries from Drive unless requested; store Drive file IDs and metadata in Supabase.
-- Run acceptance tests: both logins, realtime text, reload/history, voice-note record/playback, private gallery viewing, likes/comments, online/offline status, call accept/decline/end, reconnect, logout and cross-account isolation.
+## Next phases
+1. Apply and verify the schema.
+2. Add a secure bootstrap flow for the two users and test RLS.
+3. Implement the Supabase client/auth in a separate branch; retain the current Apps Script version as fallback.
+4. Move text messages and presence to Supabase Realtime.
+5. Add voice-note upload/playback using private Storage.
+6. Connect likes/comments and gallery metadata to Supabase while keeping Drive file operations server-side.
+7. Implement call authorization/signaling and choose the media transport after testing pricing/free-tier limits.
+8. Export Google Sheets records before any optional import; verify both accounts end-to-end before cutover.
 
 ## Not yet live
-Adding these files does not change the deployed site, create Supabase Auth users, move records/files, deploy an Edge Function, or configure Cloudflare. Those steps require dashboard setup and project secrets. Do not cut over until both users pass acceptance tests.
+Committing SQL does not run it in Supabase, create users, move data/files, deploy server functions, configure Cloudflare, or change the live site. These are separate steps.
