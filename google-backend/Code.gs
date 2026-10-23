@@ -44,9 +44,13 @@ function doPost(e) {
     const action = String(p.action || '');
     const payload = p.payload ? JSON.parse(p.payload) : {};
     if (action === 'login') result = login_(payload.username, payload.password);
+    else if (action === 'bootstrap') result = bootstrap_();
     else {
       const user = requireSession_(payload.token);
       if (action === 'logout') { revokeSession_(payload.token); result = { ok: true }; }
+      else if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(payload.before, payload.limit) };
+      else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_() };
+      else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user) };
       else if (action === 'sendMessage') result = sendMessage_(user, payload.message);
       else if (action === 'addYoutube') result = addYoutube_(user, payload.url, payload.title, payload.caption);
       else if (action === 'uploadMedia') result = uploadMedia_(user, payload);
@@ -56,7 +60,8 @@ function doPost(e) {
   } catch (err) { result = { ok: false, error: safeError_(err) }; }
   // Requests are submitted through a hidden form/iframe to avoid browser CORS issues.
   const json = JSON.stringify(result).replace(/</g, '\\u003c');
-  return HtmlService.createHtmlOutput('<!doctype html><meta charset="utf-8"><script>parent.postMessage({type:"anonyms-api",result:' + json + '}, "*");</script>');
+  const nonce = String((e && e.parameter && e.parameter.nonce) || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 100);
+  return HtmlService.createHtmlOutput('<!doctype html><meta charset="utf-8"><script>parent.postMessage({type:"anonyms-api",nonce:' + JSON.stringify(nonce) + ',result:' + json + '}, "*");</script>');
 }
 
 function setupAnonyms() {
@@ -83,7 +88,7 @@ function setupAnonyms() {
   folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
   Logger.log('Spreadsheet: ' + ss.getUrl());
   Logger.log('Private Drive folder: ' + folder.getName() + ' (' + folderId + ')');
-  Logger.log('Set ANONYMS_USER_KEVEN_PASSWORD and ANONYMS_USER_ZUBII_PASSWORD in Script Properties before use.');
+  Logger.log('Set ANONYMS_USER_KEVEN_PASSWORD, ANONYMS_USER_ZUBII_PASSWORD, ANONYMS_KEVEN_EMAIL, and ANONYMS_ZUBII_EMAIL in Script Properties before use.');
 }
 
 function bootstrap_() {
