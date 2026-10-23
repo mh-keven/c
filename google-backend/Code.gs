@@ -33,9 +33,9 @@ function doGet(e) {
       const user = requireSession_(p.token);
       if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(p.before, p.limit) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
-      else if (action === 'toggleLike') result = toggleLike_(user, payload.gallery_id);
-      else if (action === 'galleryComments') result = getGalleryComments_(payload.gallery_id);
-      else if (action === 'addComment') result = addGalleryComment_(user, payload.gallery_id, payload.comment);
+      else if (action === 'toggleLike') result = toggleLike_(user, p.gallery_id);
+      else if (action === 'galleryComments') result = getGalleryComments_(p.gallery_id);
+      else if (action === 'addComment') result = addGalleryComment_(user, p.gallery_id, p.comment);
       else if (action === 'whoami') result = { ok: true, user: user };
       else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user) };
       else throw new Error('Unknown action');
