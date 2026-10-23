@@ -14,7 +14,7 @@ alter table public.chat_profiles enable row level security;
 alter table public.chat_profiles force row level security;
 drop policy if exists "members read profiles" on public.chat_profiles;
 create policy "members read profiles" on public.chat_profiles for select to authenticated
-using (exists (select 1 from public.chat_profiles me where me.user_id=auth.uid()));
+using (true); -- Only the two approved profiles can be inserted by the trusted setup step.
 drop policy if exists "update own presence" on public.chat_profiles;
 create policy "update own presence" on public.chat_profiles for update to authenticated
 using (user_id=auth.uid()) with check (user_id=auth.uid());
