@@ -4,7 +4,7 @@
   // Paste the deployed Apps Script Web App URL ending in /exec here.
   const API_URL = 'https://script.google.com/macros/s/AKfycbyW_06rlpggyk054n43VbwYhgJarWsoV7CRR8iRm43Lvi_ghUKzSJeOJoM7t5pF6KcsAQ/exec';
   const $ = id => document.getElementById(id);
-  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0 };
+  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0 };
   const EMOJIS = ['❤️','😀','😃','😄','😁','😆','😂','🤣','😊','😉','😍','🥰','😘','😎','🥳','😏','😔','🥺','😢','😭','😤','😡','🤯','😳','😱','🤗','🤔','😶','🙄','😮','😴','🤒','🫠','🫡','🫣','🫤','👍','🙏','✨','💖','💗','💞','🌹','🫶','🔥','🎉'];
   let pollTimer = null, statusTimer = null;
 
@@ -65,14 +65,36 @@
     $('login-screen').hidden = true; $('app-screen').hidden = false;
     $('conn-status').textContent = 'Connected as ' + state.user; $('conn-status').dataset.state = 'online';
     await Promise.all([loadMessages(true), loadGallery(), loadStatus()]);
-    clearInterval(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
-    pollTimer = setInterval(() => { if (!document.hidden && !state.messagePolling) loadMessages(false).catch(showApiError); }, 1200);
+    clearTimeout(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
+    // Poll only after the previous request finishes; while the chat is visible,
+    // a short delay after each response keeps delivery responsive without overlap.
+    scheduleMessagePoll(100);
     statusTimer = setInterval(async () => { if (!document.hidden) { try { await post('touch', {token: state.token}); await loadStatus(); } catch (_) {} } }, 8000);
     state.callTimer = setInterval(() => { if (!document.hidden) pollCallState().catch(() => {}); }, 1400);
     pollCallState().catch(() => {});
   }
 
   function showApiError(error) { banner(error.message || 'Something went wrong.'); }
+
+  function scheduleMessagePoll(delay = 500) {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(async () => {
+      if (!state.token) return;
+      if (document.hidden) { scheduleMessagePoll(1500); return; }
+      try {
+        await loadMessages(false);
+        scheduleMessagePoll(500);
+      } catch (error) {
+        // Back off briefly on transient errors rather than hammering the backend.
+        scheduleMessagePoll(1600);
+      }
+    }, delay);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && state.token) scheduleMessagePoll(50);
+  });
+
   function syncComposerActions() {
     const hasText = !!$('message-input').value.trim();
     $('send-btn').hidden = !hasText;
@@ -90,23 +112,37 @@
   syncComposerActions();
 
   async function loadMessages(initial) {
-    if (!initial && state.messagePolling) return;
+    if (!initial && state.messagePolling) return false;
     state.messagePolling = true;
     try {
       const result = await post('messages', {token:state.token, limit:200, before:'', after:initial ? '' : state.newest});
+      const received = result.messages || [];
       if (initial) {
-        state.messages = result.messages || []; state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
+        state.messages = received;
+        state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
         state.before = state.messages.length ? state.messages[0].created_at : '';
-        renderMessages(); return;
+        renderMessages();
+        return false;
+      }
+
+      // Advance the cursor from persisted Supabase rows, even when they're already
+      // present locally. This avoids skipping another person's message after a send.
+      for (const message of received) {
+        if (!state.newest || String(message.created_at) > String(state.newest)) state.newest = message.created_at;
       }
       const known = new Set(state.messages.map(old => old.id));
-      const fresh = (result.messages || []).filter(m => !known.has(m.id));
-      if (!fresh.length) return;
-      const scroller = $('messages'), nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
-      state.messages.push(...fresh); state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-      state.newest = state.messages[state.messages.length - 1].created_at; state.before = state.messages[0].created_at;
+      const fresh = received.filter(message => !known.has(message.id));
+      if (!fresh.length) return false;
+
+      const scroller = $('messages');
+      const nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
+      state.messages.push(...fresh);
+      state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+      state.before = state.messages.length ? state.messages[0].created_at : '';
+      state.lastChatActivity = Date.now();
       renderMessages();
-      if (nearBottom || fresh.some(m => m.username === state.user)) scroller.scrollTop = scroller.scrollHeight;
+      if (nearBottom || fresh.some(message => message.username === state.user)) scroller.scrollTop = scroller.scrollHeight;
+      return true;
     } finally { state.messagePolling = false; }
   }
   $('load-earlier').addEventListener('click', async () => {
@@ -173,15 +209,16 @@
       state.messages = state.messages.filter(m => m.id !== pendingId);
       if (result.message && !state.messages.some(m => m.id === result.message.id)) state.messages.push(result.message);
       state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-      state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
+      state.lastChatActivity = Date.now();
       renderMessages(); $('messages').scrollTop = $('messages').scrollHeight; banner('');
+      scheduleMessagePoll(50);
     } catch (error) {
       state.messages = state.messages.filter(m => m.id !== pendingId);
       if (!input.value) input.value = message;
       syncComposerActions(); renderMessages(); banner(error.message);
     } finally { state.busy = false; $('send-btn').disabled = false; input.focus(); }
   });
-  $('message-input').addEventListener('input', () => { const el = $('message-input'); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; syncComposerActions(); });
+  $('message-input').addEventListener('input', () => { const el = $('message-input'); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; state.lastChatActivity = Date.now(); syncComposerActions(); });
   $('message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('composer').requestSubmit(); } });
   $('emoji-btn').addEventListener('click', () => {
     const panel = $('emoji-panel'); panel.hidden = !panel.hidden;
@@ -217,19 +254,21 @@
         state.recordingChunks = [];
         button.disabled = true;
         try {
-          const filename = 'voice-note-' + Date.now() + (blob.type.includes('ogg') ? '.ogg' : '.webm');
-          const started = await post('uploadStart', {token:state.token, purpose:'voice', filename, mime_type:blob.type || 'audio/webm', size:blob.size, title:'Voice note', duration_seconds:duration});
-          let result = null;
-          const chunkSize = 2 * 1024 * 1024;
-          for (let offset = 0; offset < blob.size; offset += chunkSize) {
-            const end = Math.min(offset + chunkSize, blob.size), chunk = blob.slice(offset, end);
-            const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read voice note chunk.')); reader.readAsDataURL(chunk); });
-            result = await post('uploadChunk', {token:state.token, upload_id:started.upload_id, start:offset, end:end-1, total:blob.size, base64});
-          }
-          if (result?.message && !state.messages.some(m => m.id === result.message.id)) state.messages.push(result.message);
+          const maxVoiceBytes = 8 * 1024 * 1024;
+          if (!blob.size || blob.size > maxVoiceBytes) throw new Error('Voice note is too large. Please record a shorter note and try again.');
+          const filename = 'voice-note-' + Date.now() + (blob.type.includes('ogg') ? '.ogg' : blob.type.includes('mp4') ? '.m4a' : '.webm');
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result).split(',')[1]);
+            reader.onerror = () => reject(new Error('Could not read the voice note.'));
+            reader.readAsDataURL(blob);
+          });
+          const result = await post('sendVoiceNote', {token:state.token, filename, mime_type:blob.type || 'audio/webm', size:blob.size, base64, duration_seconds:duration});
+          if (result.message && !state.messages.some(message => message.id === result.message.id)) state.messages.push(result.message);
           state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-          state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
+          state.lastChatActivity = Date.now();
           renderMessages(); $('messages').scrollTop = $('messages').scrollHeight; banner('');
+          scheduleMessagePoll(50);
         } catch (error) { banner(error.message || 'Voice note failed to send.'); }
         finally { button.disabled = false; button.classList.remove('recording'); button.textContent = '🎙️'; button.title = 'Record voice note'; button.setAttribute('aria-label','Record voice note'); state.recorder = null; syncComposerActions(); }
       };
