@@ -140,12 +140,16 @@ function uploadMedia_(user, payload) {
   const blob = Utilities.newBlob(bytes, mime, name);
   const folder = DriveApp.getFolderById(PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY));
   const file = folder.createFile(blob);
-  // Keep Drive files private. Access is served through this backend after session validation.
+  // Keep files private; grant viewer access only to the two configured Google accounts.
   file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+  const props = PropertiesService.getScriptProperties();
+  const allowedEmails = [props.getProperty('ANONYMS_KEVEN_EMAIL'), props.getProperty('ANONYMS_ZUBII_EMAIL')].filter(Boolean);
+  if (allowedEmails.length !== 2) { file.setTrashed(true); throw new Error('Configure ANONYMS_KEVEN_EMAIL and ANONYMS_ZUBII_EMAIL before uploading media.'); }
+  allowedEmails.forEach(email => file.addViewer(email));
   const now = new Date().toISOString();
   const id = Utilities.getUuid();
   withLock_(() => sheet_('Gallery').appendRow([id, user, String(payload.title || name).slice(0, 120), String(payload.caption || '').slice(0, 500), type, 'drive', file.getId(), '', mime, now]));
-  return { ok: true, item: { id: id, uploader: user, title: String(payload.title || name).slice(0, 120), caption: String(payload.caption || ''), media_type: type, source: 'drive', drive_file_id: file.getId(), mime_type: mime, created_at: now } };
+  return { ok: true, item: { id: id, uploader: user, title: String(payload.title || name).slice(0, 120), caption: String(payload.caption || ''), media_type: type, source: 'drive', drive_file_id: file.getId(), mime_type: mime, media_url: 'https://drive.google.com/uc?export=view&id=' + file.getId(), preview_url: 'https://drive.google.com/file/d/' + file.getId() + '/preview', created_at: now } };
 }
 
 function getMessages_(before, limit) {
@@ -162,7 +166,7 @@ function getMessages_(before, limit) {
 function getGallery_() {
   return rowsAsObjects_('Gallery').reverse().slice(0, 300).map(r => ({
     id: r.id, uploader: r.uploader, title: r.title, caption: r.caption, media_type: r.media_type,
-    source: r.source, drive_file_id: r.drive_file_id, youtube_id: r.youtube_id, mime_type: r.mime_type, created_at: r.created_at
+    source: r.source, drive_file_id: r.drive_file_id, youtube_id: r.youtube_id, mime_type: r.mime_type, media_url: r.drive_file_id ? ('https://drive.google.com/uc?export=view&id=' + r.drive_file_id) : '', preview_url: r.drive_file_id ? ('https://drive.google.com/file/d/' + r.drive_file_id + '/preview') : '', created_at: r.created_at
   }));
 }
 
