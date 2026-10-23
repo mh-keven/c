@@ -190,11 +190,6 @@ function getGallery_(activeGalleryUser) {
   });
 }
 
-  return rowsAsObjects_('Gallery').reverse().slice(0, 300).map(r => ({
-    id: r.id, uploader: r.uploader, title: r.title, caption: r.caption, media_type: r.media_type,
-    source: r.source, drive_file_id: r.drive_file_id, youtube_id: r.youtube_id, mime_type: r.mime_type, media_url: r.drive_file_id ? ('https://drive.google.com/uc?export=view&id=' + r.drive_file_id) : '', preview_url: r.drive_file_id ? ('https://drive.google.com/file/d/' + r.drive_file_id + '/preview') : '', created_at: r.created_at
-  }));
-}
 
 function toggleLike_(user, galleryId) {
   galleryId = String(galleryId || '');
