@@ -54,7 +54,11 @@ function doPost(e) {
     else if (action === 'bootstrap') result = bootstrap_();
     else {
       const user = requireSession_(payload.token);
-      if (action === 'logout') { revokeSession_(payload.token); result = { ok: true }; }
+      if (action === 'logout') {
+        revokeSession_(payload.token);
+        logSupabaseLoginEvent_(user, 'logout');
+        result = { ok: true };
+      }
       else if (action === 'whoami') result = { ok: true, user: user };
       else if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(payload.before, payload.limit, payload.after) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
@@ -124,6 +128,7 @@ function login_(username, password) {
   const expected = props.getProperty('ANONYMS_USER_' + username.toUpperCase() + '_PASSWORD');
   if (!expected || !constantTimeEqual_(String(password), String(expected))) {
     Utilities.sleep(500);
+    logSupabaseLoginEvent_(username, 'login_failure');
     return { ok: false, error: 'Invalid username or password.' };
   }
   const token = Utilities.getUuid() + Utilities.getUuid().replace(/-/g, '');
@@ -131,7 +136,45 @@ function login_(username, password) {
   const now = new Date();
   const expires = new Date(now.getTime() + CFG.SESSION_TTL_SECONDS * 1000);
   withLock_(() => sheet_('Sessions').appendRow([hash, username, now.toISOString(), expires.toISOString(), now.toISOString()]));
+  logSupabaseLoginEvent_(username, 'login_success');
   return { ok: true, user: username, token: token, expires_at: expires.toISOString() };
+}
+
+/** Best-effort audit logging. Credentials and session tokens are never sent to Supabase. */
+function logSupabaseLoginEvent_(username, eventType) {
+  try {
+    if (CFG.USERS.indexOf(username) === -1) return;
+    if (['login_success', 'login_failure', 'logout'].indexOf(eventType) === -1) return;
+
+    const props = PropertiesService.getScriptProperties();
+    const url = String(props.getProperty('SUPABASE_URL') || '').replace(/\\/+$/, '');
+    const key = props.getProperty('SUPABASE_SERVICE_ROLE_KEY');
+    if (!url || !key) {
+      console.warn('Supabase login-event logging is not configured.');
+      return;
+    }
+
+    const response = UrlFetchApp.fetch(url + '/rest/v1/login_events', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: {
+        apikey: key,
+        Authorization: 'Bearer ' + key,
+        Prefer: 'return=minimal'
+      },
+      payload: JSON.stringify({
+        username: username,
+        event_type: eventType,
+        request_id: Utilities.getUuid()
+      }),
+      muteHttpExceptions: true
+    });
+    const code = response.getResponseCode();
+    if (code < 200 || code >= 300) console.warn('Supabase login-event logging failed; HTTP ' + code);
+  } catch (err) {
+    // Audit logging must never expose secrets or prevent the normal login/logout flow.
+    console.warn('Supabase login-event logging error: ' + String(err).slice(0, 120));
+  }
 }
 
 function sendMessage_(user, message) {
