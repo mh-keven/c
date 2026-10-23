@@ -4,7 +4,7 @@
  * Only the publishable (anon) key belongs in this file.
  */
 
-console.log("Private chat script v4");
+console.log("Private chat script v5");
 
 // ====== 1. CONFIG — paste your own values (Project Settings → API) ======
 const SUPABASE_URL = "https://czqijodfoidzejgwblrf.supabase.co";
@@ -92,9 +92,13 @@ el.loginForm.addEventListener("submit", async (e) => {
 
   if (!db) return showError("Add your Supabase URL and key in script.js first.");
 
-  const typed = el.username.value.trim();
+  const enteredUsername = el.username.value.trim();
   const password = el.password.value;
-  if (!typed || !password) return showError(LOGIN_ERROR);
+  if (!enteredUsername || !password) return showError(LOGIN_ERROR);
+  // Zek123 is the login-only alias for Keven; internal chat identity remains Keven.
+  const normalizedUsername = enteredUsername.toLowerCase();
+  const typed = normalizedUsername === "zek123" ? "Keven" : normalizedUsername === "zubii" ? "Zubii" : "";
+  if (!typed) return showError(LOGIN_ERROR);
 
   el.loginBtn.disabled = true;
   try {
