@@ -72,7 +72,6 @@
       method: 'POST',
       headers: {
         apikey: state.supabaseAnonKey,
-        Authorization: 'Bearer ' + state.supabaseAnonKey,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(args),
