@@ -147,7 +147,7 @@ function logSupabaseLoginEvent_(username, eventType) {
     if (['login_success', 'login_failure', 'logout'].indexOf(eventType) === -1) return;
 
     const props = PropertiesService.getScriptProperties();
-    const url = String(props.getProperty('SUPABASE_URL') || '').replace(/\\/+$/, '');
+    const url = String(props.getProperty('SUPABASE_URL') || '').replace(/\/+$/, '');
     const key = props.getProperty('SUPABASE_SERVICE_ROLE_KEY');
     if (!url || !key) {
       console.warn('Supabase login-event logging is not configured.');
