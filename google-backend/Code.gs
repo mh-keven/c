@@ -215,7 +215,7 @@ function createSignedVoiceUpload_(user, payload) {
   const data = JSON.parse(response.getContentText() || '{}');
   const signedUrl = String(data.signedUrl || data.signedURL || data.url || '');
   if (!signedUrl) throw new Error('Supabase did not return a signed upload URL.');
-  const uploadUrl = signedUrl.startsWith('http') ? signedUrl : base + '/storage/v1' + (signedUrl.startsWith('/') ? signedUrl : '/' + signedUrl);
+  const uploadUrl = signedUrl.startsWith('http') ? signedUrl : signedUrl.startsWith('/storage/v1/') ? base + signedUrl : base + '/storage/v1' + (signedUrl.startsWith('/') ? signedUrl : '/' + signedUrl);
   return {ok:true,path:path,upload_url:uploadUrl};
 }
 
@@ -432,6 +432,7 @@ function grantPrivateViewers_(fileId) {
 function startResumableUpload_(user, payload) {
   const name = String(payload.filename || 'upload').replace(/[\\/\\r\\n]/g, '_').slice(0, 160);
   const purpose = String(payload.purpose || 'gallery');
+  if (purpose === 'voice') throw new Error('Voice notes now upload directly to Supabase. Refresh Anonyms and try again.');
   const mime = inferMediaMime_(name, payload.mime_type || '');
   const type = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : '';
   const isVoice = purpose === 'voice' && mime.startsWith('audio/');
