@@ -1,4 +1,4 @@
-/* Anonyms frontend — Google Apps Script API only. No Supabase SDK or credentials. */
+/* Anonyms chat: direct Supabase RPC and signed Storage upload when configured. No service-role key in the browser. */
 (() => {
   'use strict';
   // Paste the deployed Apps Script Web App URL ending in /exec here.
