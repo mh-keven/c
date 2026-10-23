@@ -444,7 +444,7 @@
         state.call.status = serverCall.status;
         state.lastCallStatus = serverCall.status;
         if (serverCall.status === 'accepted') setupAcceptedCall(state.call).catch(async error => {
-          $('video-call-status').textContent = error.name === 'NotAllowedError' ? 'Allow camera and microphone to start the call.' : (error.message || 'Could not start the call.');
+          $('video-call-status').textContent = error.name === 'NotAllowedError' ? 'Allow camera and microphone to start video.' : (error.message || 'Could not start the call.');
           await endCall(true);
         });
         if (['ended','declined'].includes(serverCall.status)) {
