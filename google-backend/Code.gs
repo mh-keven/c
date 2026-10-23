@@ -215,7 +215,8 @@ function createSignedVoiceUpload_(user, payload) {
   const data = JSON.parse(response.getContentText() || '{}');
   const signedUrl = String(data.signedUrl || data.signedURL || data.url || '');
   if (!signedUrl) throw new Error('Supabase did not return a signed upload URL.');
-  return {ok:true,path:path,upload_url:signedUrl.startsWith('http') ? signedUrl : base + signedUrl};
+  const uploadUrl = signedUrl.startsWith('http') ? signedUrl : base + '/storage/v1' + (signedUrl.startsWith('/') ? signedUrl : '/' + signedUrl);
+  return {ok:true,path:path,upload_url:uploadUrl};
 }
 
 function finalizeSupabaseVoiceNote_(user, payload) {
