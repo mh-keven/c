@@ -31,7 +31,7 @@ function doGet(e) {
     else if (action === 'bootstrap') result = bootstrap_();
     else {
       const user = requireSession_(p.token);
-      if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(p.before, p.limit) };
+      if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(p.before, p.limit, p.after) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
       else if (action === 'toggleLike') result = toggleLike_(user, p.gallery_id);
       else if (action === 'galleryComments') result = getGalleryComments_(p.gallery_id);
@@ -56,7 +56,7 @@ function doPost(e) {
       const user = requireSession_(payload.token);
       if (action === 'logout') { revokeSession_(payload.token); result = { ok: true }; }
       else if (action === 'whoami') result = { ok: true, user: user };
-      else if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(payload.before, payload.limit) };
+      else if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(payload.before, payload.limit, payload.after) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
       else if (action === 'toggleLike') result = toggleLike_(user, payload.gallery_id);
       else if (action === 'galleryComments') result = getGalleryComments_(payload.gallery_id);
@@ -65,6 +65,9 @@ function doPost(e) {
       else if (action === 'sendMessage') result = sendMessage_(user, payload.message);
       else if (action === 'addYoutube') result = addYoutube_(user, payload.url, payload.title, payload.caption);
       else if (action === 'uploadMedia') result = uploadMedia_(user, payload);
+      else if (action === 'uploadStart') result = startResumableUpload_(user, payload);
+      else if (action === 'uploadChunk') result = uploadChunk_(user, payload);
+      else if (action === 'sendVoiceNote') result = sendVoiceNote_(user, payload);
       else if (action === 'touch') { touchSession_(payload.token); result = { ok: true }; }
       else if (action === 'callRequest') result = requestCall_(user);
       else if (action === 'callRespond') result = respondCall_(user, payload.call_id, payload.decision);
@@ -101,7 +104,7 @@ function setupAnonyms() {
     props.setProperty(CFG.DRIVE_FOLDER_PROPERTY, folderId);
   }
   const folder = DriveApp.getFolderById(folderId);
-  folder.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
+  // Newly created Drive folders are private by default; avoid invalid NONE permission updates.
   Logger.log('Spreadsheet: ' + ss.getUrl());
   Logger.log('Private Drive folder: ' + folder.getName() + ' (' + folderId + ')');
   Logger.log('Set ANONYMS_USER_KEVEN_PASSWORD, ANONYMS_USER_ZUBII_PASSWORD, ANONYMS_KEVEN_EMAIL, and ANONYMS_ZUBII_EMAIL in Script Properties before use.');
@@ -151,18 +154,106 @@ function addYoutube_(user, url, title, caption) {
   return { ok: true, item: { id: id, uploader: user, title: safeTitle, caption: safeCaption, media_type: 'video', source: 'youtube', youtube_id: videoId, created_at: now } };
 }
 
+function startResumableUpload_(user, payload) {
+  const mime = String(payload.mime_type || '');
+  const name = String(payload.filename || 'upload').replace(/[\\/\\r\\n]/g, '_').slice(0, 160);
+  const type = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : '';
+  const size = Number(payload.size);
+  if (!type || !Number.isFinite(size) || size <= 0) throw new Error('Choose a valid photo or video file.');
+  const folderId = PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY);
+  if (!folderId) throw new Error('Run setupAnonyms() first.');
+  const response = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size', {
+    method: 'post',
+    contentType: 'application/json; charset=UTF-8',
+    headers: {
+      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
+      'X-Upload-Content-Type': mime,
+      'X-Upload-Content-Length': String(size)
+    },
+    payload: JSON.stringify({name:name, mimeType:mime, parents:[folderId], description:'Anonyms private media uploaded by ' + user}),
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) throw new Error('Google Drive could not start this upload (' + response.getResponseCode() + ').');
+  const headers = response.getAllHeaders();
+  const sessionUrl = headers.Location || headers.location;
+  if (!sessionUrl) throw new Error('Google Drive did not return an upload session.');
+  const uploadId = Utilities.getUuid();
+  const cache = CacheService.getScriptCache();
+  const meta = {user:user, filename:name, mime_type:mime, size:size, title:String(payload.title || name).slice(0,120), session_url:String(sessionUrl), created_at:new Date().toISOString()};
+  cache.put('anonyms_upload_' + uploadId, JSON.stringify(meta), 21600);
+  return {ok:true, upload_id:uploadId, chunk_size:1024*1024};
+}
+
+function uploadChunk_(user, payload) {
+  const uploadId = String(payload.upload_id || '');
+  const key = 'anonyms_upload_' + uploadId;
+  const cache = CacheService.getScriptCache();
+  const raw = cache.get(key);
+  if (!raw) throw new Error('Upload session expired. Please select the file again.');
+  const meta = JSON.parse(raw);
+  if (meta.user !== user) throw new Error('This upload does not belong to your session.');
+  const start = Number(payload.start), end = Number(payload.end), total = Number(payload.total);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || total !== meta.size || start < 0 || end < start || end >= total) throw new Error('Invalid upload chunk range.');
+  const bytes = Utilities.base64Decode(String(payload.base64 || ''));
+  if (!bytes.length || bytes.length !== end - start + 1) throw new Error('Upload chunk size does not match its range.');
+  const response = UrlFetchApp.fetch(meta.session_url, {
+    method: 'put',
+    contentType: meta.mime_type,
+    headers: {Authorization:'Bearer ' + ScriptApp.getOAuthToken(), 'Content-Range':'bytes ' + start + '-' + end + '/' + total},
+    payload: bytes,
+    muteHttpExceptions: true
+  });
+  const code = response.getResponseCode();
+  if (code === 308) return {ok:true, complete:false};
+  if (code !== 200 && code !== 201) throw new Error('Google Drive upload failed (' + code + '). Please retry the file.');
+  const file = JSON.parse(response.getContentText() || '{}');
+  if (!file.id) throw new Error('Google Drive finished without returning a file ID.');
+  const props = PropertiesService.getScriptProperties();
+  const emails = [props.getProperty('ANONYMS_KEVEN_EMAIL'), props.getProperty('ANONYMS_ZUBII_EMAIL')].filter(Boolean);
+  if (emails.length !== 2) {
+    DriveApp.getFileById(file.id).setTrashed(true);
+    cache.remove(key);
+    throw new Error('Configure ANONYMS_KEVEN_EMAIL and ANONYMS_ZUBII_EMAIL before uploading media.');
+  }
+  const driveFile = DriveApp.getFileById(file.id);
+  emails.forEach(email => driveFile.addViewer(email));
+  const now = new Date().toISOString();
+  const id = Utilities.getUuid();
+  withLock_(() => sheet_('Gallery').appendRow([id,user,meta.title,'',meta.mime_type.startsWith('image/')?'image':'video','drive',file.id,'',meta.mime_type,now]));
+  cache.remove(key);
+  return {ok:true,complete:true,item:{id:id,uploader:user,title:meta.title,caption:'',media_type:meta.mime_type.startsWith('image/')?'image':'video',source:'drive',drive_file_id:file.id,mime_type:meta.mime_type,media_url:'https://drive.google.com/uc?export=view&id='+file.id,preview_url:'https://drive.google.com/file/d/'+file.id+'/preview',created_at:now}};
+}
+
+function sendVoiceNote_(user, payload) {
+  const mime = String(payload.mime_type || 'audio/webm');
+  if (!mime.startsWith('audio/')) throw new Error('This is not a supported audio recording.');
+  const bytes = Utilities.base64Decode(String(payload.base64 || ''));
+  if (!bytes.length || bytes.length > CFG.MAX_UPLOAD_BYTES) throw new Error('Voice note is too large. Record a shorter note and try again.');
+  const name = String(payload.filename || 'voice-note.webm').replace(/[\\/\\r\\n]/g,'_').slice(0,160);
+  const folder = DriveApp.getFolderById(PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY));
+  const file = folder.createFile(Utilities.newBlob(bytes,mime,name));
+  const props = PropertiesService.getScriptProperties();
+  const emails = [props.getProperty('ANONYMS_KEVEN_EMAIL'),props.getProperty('ANONYMS_ZUBII_EMAIL')].filter(Boolean);
+  if (emails.length !== 2) { file.setTrashed(true); throw new Error('Configure ANONYMS_KEVEN_EMAIL and ANONYMS_ZUBII_EMAIL before recording voice notes.'); }
+  emails.forEach(email => file.addViewer(email));
+  const now = new Date().toISOString(), id = Utilities.getUuid();
+  const duration = Math.max(1, Number(payload.duration_seconds) || 1);
+  const url = 'https://drive.google.com/uc?export=download&id=' + file.getId();
+  withLock_(() => sheet_('Messages').appendRow([id,user,'Voice note',now,'audio',file.getId(),url,mime,duration]));
+  return {ok:true,message:{id:id,username:user,message:'Voice note',created_at:now,media_type:'audio',media_id:file.getId(),media_url:url,media_mime:mime,duration_seconds:duration}};
+}
+
 function uploadMedia_(user, payload) {
   const mime = String(payload.mime_type || '');
   const name = String(payload.filename || 'upload').replace(/[\\/\\r\\n]/g, '_').slice(0, 160);
   const type = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : '';
   if (!type) throw new Error('Only image and video files are supported.');
   const bytes = Utilities.base64Decode(String(payload.base64 || ''));
-  if (!bytes.length || bytes.length > CFG.MAX_UPLOAD_BYTES) throw new Error('Upload must be smaller than 8 MB. Larger uploads need a resumable upload flow.');
+  if (!bytes.length || bytes.length > CFG.MAX_UPLOAD_BYTES) throw new Error('This upload is too large for the legacy upload path. Please use the resumable uploader.');
   const blob = Utilities.newBlob(bytes, mime, name);
   const folder = DriveApp.getFolderById(PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY));
   const file = folder.createFile(blob);
   // Keep files private; grant viewer access only to the two configured Google accounts.
-  file.setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.NONE);
   const props = PropertiesService.getScriptProperties();
   const allowedEmails = [props.getProperty('ANONYMS_KEVEN_EMAIL'), props.getProperty('ANONYMS_ZUBII_EMAIL')].filter(Boolean);
   if (allowedEmails.length !== 2) { file.setTrashed(true); throw new Error('Configure ANONYMS_KEVEN_EMAIL and ANONYMS_ZUBII_EMAIL before uploading media.'); }
@@ -173,10 +264,10 @@ function uploadMedia_(user, payload) {
   return { ok: true, item: { id: id, uploader: user, title: String(payload.title || name).slice(0, 120), caption: String(payload.caption || ''), media_type: type, source: 'drive', drive_file_id: file.getId(), mime_type: mime, media_url: 'https://drive.google.com/uc?export=view&id=' + file.getId(), preview_url: 'https://drive.google.com/file/d/' + file.getId() + '/preview', created_at: now } };
 }
 
-function getMessages_(before, limit) {
+function getMessages_(before, limit, after) {
   const rows = rowsAsObjects_('Messages');
   const max = Math.min(Math.max(Number(limit) || 200, 1), 200);
-  const filtered = rows.filter(r => !before || String(r.created_at) < String(before));
+  const filtered = after ? rows.filter(r => String(r.created_at) >= String(after)) : rows.filter(r => !before || String(r.created_at) < String(before));
   return filtered.slice(-max).map(r => ({
     id: r.id, username: r.username, message: r.message, created_at: r.created_at,
     media_type: r.media_type || 'text', media_id: r.media_id || '', media_url: r.media_url || '',
@@ -228,11 +319,14 @@ function addGalleryComment_(user, galleryId, comment) {
   return { ok: true, comment: item };
 }
 function peerStatus_(user) {
-  const rows = rowsAsObjects_('Sessions').filter(r => r.username !== user && new Date(r.expires_at).getTime() > Date.now());
-  if (!rows.length) return { username: user === 'Keven' ? 'Zubii' : 'Keven', online: false, last_seen: null };
-  const latest = rows.sort((a, b) => String(b.last_seen).localeCompare(String(a.last_seen)))[0];
-  const online = Date.now() - new Date(latest.last_seen).getTime() < 45000;
-  return { username: latest.username, online: online, last_seen: latest.last_seen };
+  const peerName = user === 'Keven' ? 'Zubii' : 'Keven';
+  const rows = rowsAsObjects_('Sessions').filter(r => r.username === peerName && r.last_seen);
+  if (!rows.length) return { username: peerName, online: false, last_seen: null };
+  rows.sort((a, b) => String(b.last_seen).localeCompare(String(a.last_seen)));
+  const latest = rows[0];
+  const recent = Date.now() - new Date(latest.last_seen).getTime() < 30000;
+  const sessionValid = new Date(latest.expires_at).getTime() > Date.now();
+  return { username: peerName, online: recent && sessionValid, last_seen: latest.last_seen };
 }
 
 
@@ -329,7 +423,11 @@ function revokeSession_(token) {
   const hash = digest_(String(token || ''));
   const sh = sheet_('Sessions');
   const values = sh.getDataRange().getValues();
-  for (let i = values.length - 1; i >= 1; i--) if (values[i][0] === hash) sh.deleteRow(i + 1);
+  for (let i = values.length - 1; i >= 1; i--) if (values[i][0] === hash) {
+    const now = new Date().toISOString();
+    sh.getRange(i + 1, 4).setValue(now);
+    sh.getRange(i + 1, 5).setValue(now);
+  }
 }
 
 function requireSession_(token) {
