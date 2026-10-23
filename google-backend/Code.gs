@@ -504,7 +504,7 @@ function requestCall_(user) {
   const peer = user === 'Keven' ? 'Zubii' : 'Keven';
   if (!peerStatus_(user).online) throw new Error('Video not possible due to ' + peer + ' offline.');
   const active = rowsAsObjects_('Calls').filter(r => ['pending','accepted'].includes(String(r.status)) && (r.caller === user || r.callee === user));
-  if (active.length) throw new Error('A video call is already pending or active.');
+  if (active.length) throw new Error('A video session is already pending or active.');
   const now = new Date().toISOString();
   const item = {id:Utilities.getUuid(), caller:user, callee:peer, status:'pending', created_at:now, updated_at:now, ended_by:''};
   withLock_(() => sheet_('Calls').appendRow([item.id,item.caller,item.callee,item.status,item.created_at,item.updated_at,item.ended_by]));
@@ -522,7 +522,7 @@ function addCallSignal_(user, callId, type, payload) {
   const allowed = ['offer','answer','ice'];
   if (!allowed.includes(String(type))) throw new Error('Invalid video signal.');
   const call = findCall_(callId);
-  if (!call || ![call.caller,call.callee].includes(user) || call.status !== 'accepted') throw new Error('Video call is not active.');
+  if (!call || ![call.caller,call.callee].includes(user) || call.status !== 'accepted') throw new Error('Video session is not active.');
   const to = user === call.caller ? call.callee : call.caller;
   const data = JSON.stringify(payload || {});
   if (data.length > 45000) throw new Error('Video connection signal is too large.');
