@@ -57,7 +57,10 @@ function doPost(e) {
       if (action === 'logout') { revokeSession_(payload.token); result = { ok: true }; }
       else if (action === 'whoami') result = { ok: true, user: user };
       else if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(payload.before, payload.limit) };
-      else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_() };
+      else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
+      else if (action === 'toggleLike') result = toggleLike_(user, payload.gallery_id);
+      else if (action === 'galleryComments') result = getGalleryComments_(payload.gallery_id);
+      else if (action === 'addComment') result = addGalleryComment_(user, payload.gallery_id, payload.comment);
       else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user) };
       else if (action === 'sendMessage') result = sendMessage_(user, payload.message);
       else if (action === 'addYoutube') result = addYoutube_(user, payload.url, payload.title, payload.caption);
