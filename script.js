@@ -73,6 +73,11 @@
   }
 
   function showApiError(error) { banner(error.message || 'Something went wrong.'); }
+  function syncComposerActions() {
+    const hasText = !!$('message-input').value.trim();
+    $('send-btn').hidden = !hasText;
+    $('voice-note-btn').hidden = hasText;
+  }
   async function logout() {
     await endCall(true);
     clearInterval(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
@@ -82,6 +87,7 @@
     $('app-screen').hidden = true; $('login-screen').hidden = false; $('message-list').replaceChildren(); $('gallery-grid').replaceChildren(); banner('');
   }
   $('logout-btn').addEventListener('click', logout);
+  syncComposerActions();
 
   async function loadMessages(initial) {
     if (!initial && state.messagePolling) return;
@@ -161,7 +167,7 @@
     const pendingId = 'pending-' + Date.now() + '-' + Math.random().toString(36).slice(2);
     state.messages.push({id:pendingId,username:state.user,message,created_at:new Date().toISOString(),media_type:'text'});
     state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-    input.value = ''; input.style.height = 'auto'; renderMessages(); $('messages').scrollTop = $('messages').scrollHeight;
+    input.value = ''; input.style.height = 'auto'; syncComposerActions(); renderMessages(); $('messages').scrollTop = $('messages').scrollHeight;
     try {
       const result = await post('sendMessage', {token:state.token, message});
       state.messages = state.messages.filter(m => m.id !== pendingId);
@@ -172,10 +178,10 @@
     } catch (error) {
       state.messages = state.messages.filter(m => m.id !== pendingId);
       if (!input.value) input.value = message;
-      renderMessages(); banner(error.message);
+      syncComposerActions(); renderMessages(); banner(error.message);
     } finally { state.busy = false; $('send-btn').disabled = false; input.focus(); }
   });
-  $('message-input').addEventListener('input', () => { const el = $('message-input'); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; });
+  $('message-input').addEventListener('input', () => { const el = $('message-input'); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; syncComposerActions(); });
   $('message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('composer').requestSubmit(); } });
   $('emoji-btn').addEventListener('click', () => {
     const panel = $('emoji-panel'); panel.hidden = !panel.hidden;
@@ -203,7 +209,7 @@
       state.recordingStartedAt = Date.now();
       state.recorder = new MediaRecorder(stream, mimeType ? {mimeType} : undefined);
       state.recorder.ondataavailable = event => { if (event.data?.size) state.recordingChunks.push(event.data); };
-      state.recorder.onerror = () => { stream.getTracks().forEach(track => track.stop()); button.disabled = false; button.textContent = '🎙️'; banner('Could not record voice note.'); };
+      state.recorder.onerror = () => { stream.getTracks().forEach(track => track.stop()); button.disabled = false; button.classList.remove('recording'); button.textContent = '🎙️'; banner('Could not record voice note.'); };
       state.recorder.onstop = async () => {
         stream.getTracks().forEach(track => track.stop());
         const duration = Math.max(1, Math.round((Date.now() - state.recordingStartedAt) / 1000));
@@ -225,13 +231,13 @@
           state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
           renderMessages(); $('messages').scrollTop = $('messages').scrollHeight; banner('');
         } catch (error) { banner(error.message || 'Voice note failed to send.'); }
-        finally { button.disabled = false; button.textContent = '🎙️'; button.title = 'Record voice note'; button.setAttribute('aria-label','Record voice note'); state.recorder = null; }
+        finally { button.disabled = false; button.classList.remove('recording'); button.textContent = '🎙️'; button.title = 'Record voice note'; button.setAttribute('aria-label','Record voice note'); state.recorder = null; syncComposerActions(); }
       };
       state.recorder.start();
-      button.textContent = '■';
-      button.title = 'Stop and send voice note';
-      button.setAttribute('aria-label','Stop and send voice note');
-      banner('Recording voice note… Click ■ to stop and send.');
+      button.classList.add('recording'); button.textContent = '■';
+      button.title = 'Finish and send voice note';
+      button.setAttribute('aria-label','Finish and send voice note');
+      banner('Recording… Tap ■ to finish and send.');
     } catch (error) { banner(error.name === 'NotAllowedError' ? 'Allow microphone access to record a voice note.' : (error.message || 'Could not start recording.')); }
   });
 
@@ -264,10 +270,10 @@
     $('incoming-call-actions').hidden = !(active && call.status === 'pending' && call.role === 'callee');
     $('end-video-btn').hidden = !active;
     $('remote-video-wrap').hidden = !(active && call.status === 'accepted');
-    if (active && call.status === 'pending' && call.role === 'callee') $('video-call-status').textContent = call.caller + ' is requesting a video call.';
+    if (active && call.status === 'pending' && call.role === 'callee') $('video-call-status').textContent = call.caller + ' is requesting to start video.';
     else if (active && call.status === 'pending' && call.role === 'caller') $('video-call-status').textContent = 'Waiting for them to accept…';
     else if (active && call.status === 'accepted') $('video-call-status').textContent = call.connected ? 'Connected' : 'Connecting…';
-    else $('video-call-status').textContent = state.peerOnline ? 'Request a call when you are ready.' : peerName + ' is not online yet.';
+    else $('video-call-status').textContent = state.peerOnline ? 'Start video when you are ready.' : peerName + ' is not online yet.';
   }
 
   function stopLocalMedia(call = state.call) {
@@ -428,7 +434,7 @@
           state.lastCallId = serverCall.id; state.lastCallStatus = serverCall.status;
           renderVideoPanel();
           if (serverCall.status === 'accepted') setupAcceptedCall(state.call).catch(async error => {
-            $('video-call-status').textContent = error.name === 'NotAllowedError' ? 'Allow camera and microphone to start the call.' : (error.message || 'Could not start the call.');
+            $('video-call-status').textContent = error.name === 'NotAllowedError' ? 'Allow camera and microphone to start video.' : (error.message || 'Could not start video.');
             await endCall(true);
           });
         } else {
@@ -438,7 +444,7 @@
         state.call.status = serverCall.status;
         state.lastCallStatus = serverCall.status;
         if (serverCall.status === 'accepted') setupAcceptedCall(state.call).catch(async error => {
-          $('video-call-status').textContent = error.name === 'NotAllowedError' ? 'Allow camera and microphone to start the call.' : (error.message || 'Could not start the call.');
+          $('video-call-status').textContent = error.name === 'NotAllowedError' ? 'Allow camera and microphone to start video.' : (error.message || 'Could not start the call.');
           await endCall(true);
         });
         if (['ended','declined'].includes(serverCall.status)) {
