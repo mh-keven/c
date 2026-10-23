@@ -15,10 +15,34 @@
   // Apps Script web apps have cross-origin restrictions. Submit POST requests to a hidden iframe;
   // the iframe responds with a nonce-tagged postMessage. Only the exact iframe source is accepted.
   function post(action, payload = {}) {
-    if (supabaseDb && ['messages','sendMessage','toggleLike','galleryComments','addComment','touch','status'].includes(action)) {
-      return supabaseAction(action, payload);
-    }
-    return googlePost(action, payload);
+    return new Promise((resolve, reject) => {
+      if (!apiConfigured()) return reject(new Error('Set API_URL in script.js to your deployed Google Apps Script URL first.'));
+      const nonce = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()).replace(/[^a-zA-Z0-9_-]/g, '');
+      const frame = document.createElement('iframe');
+      frame.name = 'anonyms-frame-' + nonce;
+      frame.title = 'Anonyms secure API request';
+      frame.hidden = true;
+      const form = document.createElement('form');
+      form.method = 'POST'; form.action = API_URL; form.target = frame.name; form.hidden = true;
+      const fields = { action, nonce, payload: JSON.stringify(payload) };
+      Object.entries(fields).forEach(([name, value]) => {
+        const input = document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = value; form.appendChild(input);
+      });
+      let finished = false;
+      const cleanup = () => { window.removeEventListener('message', onMessage); form.remove(); frame.remove(); clearTimeout(timeout); };
+      const timeout = setTimeout(() => { if (!finished) { finished = true; cleanup(); reject(new Error('Google backend timed out. The Google Sheets service may be busy; please try again.')); } }, 20000);
+      const onMessage = event => {
+        if (event.data?.type !== 'anonyms-api' || event.data?.nonce !== nonce) return;
+        if (finished) return;
+        finished = true; cleanup();
+        const result = event.data.result;
+        if (!result?.ok) reject(new Error(result?.error || 'Request failed.'));
+        else resolve(result);
+      };
+      window.addEventListener('message', onMessage);
+      document.body.append(frame, form);
+      form.submit();
+    });
   }
 
   $('login-form').addEventListener('submit', async event => {
@@ -30,7 +54,6 @@
     $('login-btn').disabled = true;
     try {
       const result = await post('login', { username, password });
-      if (supabaseDb) await ensureSupabaseChatLogin(result.user, password);
       state.token = result.token; state.user = result.user;
       sessionStorage.setItem('anonyms_token', state.token); sessionStorage.setItem('anonyms_user', state.user);
       $('password').value = ''; await openApp();
@@ -43,8 +66,7 @@
     $('conn-status').textContent = 'Connected as ' + state.user; $('conn-status').dataset.state = 'online';
     await Promise.all([loadMessages(true), loadGallery(), loadStatus()]);
     clearInterval(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
-    if (supabaseDb) subscribeSupabaseMessages();
-    pollTimer = setInterval(() => { if (!document.hidden && !state.messagePolling) loadMessages(false).catch(showApiError); }, supabaseDb ? 15000 : 1200);
+    pollTimer = setInterval(() => { if (!document.hidden && !state.messagePolling) loadMessages(false).catch(showApiError); }, 1200);
     statusTimer = setInterval(async () => { if (!document.hidden) { try { await post('touch', {token: state.token}); await loadStatus(); } catch (_) {} } }, 8000);
     state.callTimer = setInterval(() => { if (!document.hidden) pollCallState().catch(() => {}); }, 1400);
     pollCallState().catch(() => {});
@@ -55,8 +77,6 @@
     await endCall(true);
     clearInterval(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
     try { await post('logout', { token: state.token }); } catch (_) {}
-    if (supabaseDb) { try { await supabaseDb.rpc('chat_logout'); } catch (_) {} try { await supabaseDb.auth.signOut(); } catch (_) {} }
-    if (messageChannel && supabaseDb) { try { await supabaseDb.removeChannel(messageChannel); } catch (_) {} messageChannel = null; }
     state.token = ''; state.user = ''; state.messages = []; state.gallery = []; state.newest = ''; state.before = '';
     sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user');
     $('app-screen').hidden = true; $('login-screen').hidden = false; $('message-list').replaceChildren(); $('gallery-grid').replaceChildren(); banner('');
@@ -192,19 +212,14 @@
         button.disabled = true;
         try {
           const filename = 'voice-note-' + Date.now() + (blob.type.includes('ogg') ? '.ogg' : '.webm');
-          const result = supabaseDb
-            ? { message: await uploadVoiceToSupabase(blob, duration) }
-            : await (async () => {
-                const started = await post('uploadStart', {token:state.token, purpose:'voice', filename, mime_type:blob.type || 'audio/webm', size:blob.size, title:'Voice note', duration_seconds:duration});
-                let result = null;
-                const chunkSize = 1024 * 1024;
-                for (let offset = 0; offset < blob.size; offset += chunkSize) {
-                  const end = Math.min(offset + chunkSize, blob.size), chunk = blob.slice(offset, end);
-                  const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read voice note chunk.')); reader.readAsDataURL(chunk); });
-                  result = await post('uploadChunk', {token:state.token, upload_id:started.upload_id, start:offset, end:end-1, total:blob.size, base64});
-                }
-                return result;
-              })();
+          const started = await post('uploadStart', {token:state.token, purpose:'voice', filename, mime_type:blob.type || 'audio/webm', size:blob.size, title:'Voice note', duration_seconds:duration});
+          let result = null;
+          const chunkSize = 1024 * 1024;
+          for (let offset = 0; offset < blob.size; offset += chunkSize) {
+            const end = Math.min(offset + chunkSize, blob.size), chunk = blob.slice(offset, end);
+            const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read voice note chunk.')); reader.readAsDataURL(chunk); });
+            result = await post('uploadChunk', {token:state.token, upload_id:started.upload_id, start:offset, end:end-1, total:blob.size, base64});
+          }
           if (result?.message && !state.messages.some(m => m.id === result.message.id)) state.messages.push(result.message);
           state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
           state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
@@ -583,16 +598,6 @@
 
   // Restore session only after the backend verifies it.
   if (state.token && state.user) {
-    Promise.all([
-      post('whoami', {token:state.token}),
-      (async () => {
-        if (!supabaseDb) return null;
-        const { data } = await supabaseDb.auth.getSession();
-        if (!data?.session) throw new Error('Supabase session missing. Please sign in again.');
-        const { data: name, error } = await supabaseDb.rpc('chat_whoami');
-        if (error || name !== state.user) throw new Error('Supabase session identity mismatch.');
-        return name;
-      })()
-    ]).then(openApp).catch(() => { state.token = ''; state.user = ''; sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user'); });
+    post('whoami', {token:state.token}).then(openApp).catch(() => { state.token = ''; state.user = ''; sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user'); });
   }
 })();
