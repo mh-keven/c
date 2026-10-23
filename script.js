@@ -207,7 +207,7 @@
       const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus'].find(type => MediaRecorder.isTypeSupported(type));
       state.recordingChunks = [];
       state.recordingStartedAt = Date.now();
-      state.recorder = new MediaRecorder(stream, mimeType ? {mimeType} : undefined);
+      state.recorder = new MediaRecorder(stream, { ...(mimeType ? {mimeType} : {}), audioBitsPerSecond: 32000 });
       state.recorder.ondataavailable = event => { if (event.data?.size) state.recordingChunks.push(event.data); };
       state.recorder.onerror = () => { stream.getTracks().forEach(track => track.stop()); button.disabled = false; button.classList.remove('recording'); button.textContent = '🎙️'; banner('Could not record voice note.'); };
       state.recorder.onstop = async () => {
@@ -220,7 +220,7 @@
           const filename = 'voice-note-' + Date.now() + (blob.type.includes('ogg') ? '.ogg' : '.webm');
           const started = await post('uploadStart', {token:state.token, purpose:'voice', filename, mime_type:blob.type || 'audio/webm', size:blob.size, title:'Voice note', duration_seconds:duration});
           let result = null;
-          const chunkSize = 1024 * 1024;
+          const chunkSize = 2 * 1024 * 1024;
           for (let offset = 0; offset < blob.size; offset += chunkSize) {
             const end = Math.min(offset + chunkSize, blob.size), chunk = blob.slice(offset, end);
             const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read voice note chunk.')); reader.readAsDataURL(chunk); });
