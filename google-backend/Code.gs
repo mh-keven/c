@@ -1,5 +1,5 @@
 /**
- * Anonyms Google backend (no Supabase).
+ * Anonyms Google backend; optional Supabase login audit logging only.
  * Deploy as a Web App: execute as owner; access: Anyone.
  * Configure ANONYMS_USER_KEVEN_PASSWORD and ANONYMS_USER_ZUBII_PASSWORD
  * in Script Properties before deploying. Never put these in frontend code.
