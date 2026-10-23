@@ -79,7 +79,7 @@ create table if not exists public.gallery_likes (
 );
 create table if not exists public.gallery_comments (
   id text primary key default gen_random_uuid()::text,
-  gallery_item_id bigint not null references public.gallery_items(id) on delete cascade,
+  gallery_item_id text not null references public.gallery_items(id) on delete cascade,
   username text not null check (username in ('Keven','Zubii')),
   comment text not null check (char_length(btrim(comment)) between 1 and 1000),
   created_at timestamptz not null default now()
