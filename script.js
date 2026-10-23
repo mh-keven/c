@@ -250,7 +250,11 @@
         before:initial ? '' : '',
         after:initial ? '' : state.newest
       });
-      await hydrateAudioUrls(received);
+      if (initial) await hydrateAudioUrls(received);
+      else {
+        const alreadyKnown = new Set(state.messages.map(message => message.id));
+        await hydrateAudioUrls(received.filter(message => !alreadyKnown.has(message.id)));
+      }
       if (initial) {
         state.messages = received;
         state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
