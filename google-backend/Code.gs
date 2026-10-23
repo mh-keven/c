@@ -154,22 +154,58 @@ function addYoutube_(user, url, title, caption) {
   return { ok: true, item: { id: id, uploader: user, title: safeTitle, caption: safeCaption, media_type: 'video', source: 'youtube', youtube_id: videoId, created_at: now } };
 }
 
+function inferMediaMime_(filename, suppliedMime) {
+  const mime = String(suppliedMime || '').trim().toLowerCase().split(';')[0].trim();
+  if (mime.startsWith('image/') || mime.startsWith('video/') || mime.startsWith('audio/')) return mime;
+  const ext = String(filename || '').split('.').pop().toLowerCase();
+  const known = {
+    png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', jfif:'image/jpeg', gif:'image/gif',
+    webp:'image/webp', svg:'image/svg+xml', avif:'image/avif', heic:'image/heic', heif:'image/heif',
+    bmp:'image/bmp', tif:'image/tiff', tiff:'image/tiff', ico:'image/vnd.microsoft.icon',
+    mp4:'video/mp4', m4v:'video/x-m4v', mov:'video/quicktime', webm:'video/webm',
+    mkv:'video/x-matroska', avi:'video/x-msvideo', mpeg:'video/mpeg', mpg:'video/mpeg',
+    '3gp':'video/3gpp', ogv:'video/ogg', ts:'video/mp2t',
+    ogg:'audio/ogg', oga:'audio/ogg', mp3:'audio/mpeg', m4a:'audio/mp4',
+    wav:'audio/wav', aac:'audio/aac', opus:'audio/ogg'
+  };
+  return known[ext] || mime;
+}
+
+function grantPrivateViewers_(fileId) {
+  const props = PropertiesService.getScriptProperties();
+  const emails = [props.getProperty('ANONYMS_KEVEN_EMAIL'), props.getProperty('ANONYMS_ZUBII_EMAIL')]
+    .map(value => String(value || '').trim()).filter(Boolean);
+  if (emails.length !== 2) throw new Error('Configure ANONYMS_KEVEN_EMAIL and ANONYMS_ZUBII_EMAIL before uploading media.');
+  emails.forEach(email => {
+    const url = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/permissions?supportsAllDrives=true&sendNotificationEmail=false';
+    const response = UrlFetchApp.fetch(url, {
+      method:'post', contentType:'application/json; charset=UTF-8',
+      headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()},
+      payload:JSON.stringify({type:'user', role:'reader', emailAddress:email}),
+      muteHttpExceptions:true
+    });
+    const code = response.getResponseCode();
+    if (code < 200 || code >= 300) {
+      let detail = '';
+      try { detail = JSON.parse(response.getContentText() || '{}').error.message || ''; } catch (_) {}
+      throw new Error('Could not grant private media access to a configured account (' + code + '). ' + detail.slice(0,140));
+    }
+  });
+}
+
 function startResumableUpload_(user, payload) {
-  const mime = String(payload.mime_type || '');
   const name = String(payload.filename || 'upload').replace(/[\\/\\r\\n]/g, '_').slice(0, 160);
+  const purpose = String(payload.purpose || 'gallery');
+  const mime = inferMediaMime_(name, payload.mime_type || '');
   const type = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : '';
+  const isVoice = purpose === 'voice' && mime.startsWith('audio/');
   const size = Number(payload.size);
-  if (!type || !Number.isFinite(size) || size <= 0) throw new Error('Choose a valid photo or video file.');
+  if ((!type && !isVoice) || !Number.isFinite(size) || size <= 0) throw new Error('Choose a supported photo/video file or record a voice note.');
   const folderId = PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY);
   if (!folderId) throw new Error('Run setupAnonyms() first.');
   const response = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size', {
-    method: 'post',
-    contentType: 'application/json; charset=UTF-8',
-    headers: {
-      Authorization: 'Bearer ' + ScriptApp.getOAuthToken(),
-      'X-Upload-Content-Type': mime,
-      'X-Upload-Content-Length': String(size)
-    },
+    method: 'post', contentType: 'application/json; charset=UTF-8',
+    headers: {Authorization:'Bearer ' + ScriptApp.getOAuthToken(), 'X-Upload-Content-Type':mime, 'X-Upload-Content-Length':String(size)},
     payload: JSON.stringify({name:name, mimeType:mime, parents:[folderId], description:'Anonyms private media uploaded by ' + user}),
     muteHttpExceptions: true
   });
@@ -177,9 +213,8 @@ function startResumableUpload_(user, payload) {
   const headers = response.getAllHeaders();
   const sessionUrl = headers.Location || headers.location;
   if (!sessionUrl) throw new Error('Google Drive did not return an upload session.');
-  const uploadId = Utilities.getUuid();
-  const cache = CacheService.getScriptCache();
-  const meta = {user:user, filename:name, mime_type:mime, size:size, title:String(payload.title || name).slice(0,120), session_url:String(sessionUrl), created_at:new Date().toISOString()};
+  const uploadId = Utilities.getUuid(), cache = CacheService.getScriptCache();
+  const meta = {user:user, purpose:isVoice?'voice':'gallery', filename:name, mime_type:mime, size:size, title:String(payload.title || name).slice(0,120), duration_seconds:Math.max(1,Number(payload.duration_seconds)||1), session_url:String(sessionUrl), created_at:new Date().toISOString()};
   cache.put('anonyms_upload_' + uploadId, JSON.stringify(meta), 21600);
   return {ok:true, upload_id:uploadId, chunk_size:1024*1024};
 }
@@ -208,20 +243,24 @@ function uploadChunk_(user, payload) {
   if (code !== 200 && code !== 201) throw new Error('Google Drive upload failed (' + code + '). Please retry the file.');
   const file = JSON.parse(response.getContentText() || '{}');
   if (!file.id) throw new Error('Google Drive finished without returning a file ID.');
-  const props = PropertiesService.getScriptProperties();
-  const emails = [props.getProperty('ANONYMS_KEVEN_EMAIL'), props.getProperty('ANONYMS_ZUBII_EMAIL')].filter(Boolean);
-  if (emails.length !== 2) {
-    DriveApp.getFileById(file.id).setTrashed(true);
+  const now = new Date().toISOString(), id = Utilities.getUuid();
+  try { grantPrivateViewers_(file.id); }
+  catch (error) {
+    try { DriveApp.getFileById(file.id).setTrashed(true); } catch (_) {}
     cache.remove(key);
-    throw new Error('Configure ANONYMS_KEVEN_EMAIL and ANONYMS_ZUBII_EMAIL before uploading media.');
+    throw error;
   }
-  const driveFile = DriveApp.getFileById(file.id);
-  emails.forEach(email => driveFile.addViewer(email));
-  const now = new Date().toISOString();
-  const id = Utilities.getUuid();
-  withLock_(() => sheet_('Gallery').appendRow([id,user,meta.title,'',meta.mime_type.startsWith('image/')?'image':'video','drive',file.id,'',meta.mime_type,now]));
   cache.remove(key);
-  return {ok:true,complete:true,item:{id:id,uploader:user,title:meta.title,caption:'',media_type:meta.mime_type.startsWith('image/')?'image':'video',source:'drive',drive_file_id:file.id,mime_type:meta.mime_type,media_url:'https://drive.google.com/uc?export=view&id='+file.id,preview_url:'https://drive.google.com/file/d/'+file.id+'/preview',created_at:now}};
+  if (meta.purpose === 'voice') {
+    const url = 'https://drive.google.com/uc?export=view&id=' + file.id;
+    const duration = Math.max(1, Number(meta.duration_seconds) || 1);
+    const message = {id:id,username:user,message:'Voice note',created_at:now,media_type:'audio',media_id:file.id,media_url:url,media_mime:meta.mime_type,duration_seconds:duration};
+    withLock_(() => sheet_('Messages').appendRow([id,user,'Voice note',now,'audio',file.id,url,meta.mime_type,duration]));
+    return {ok:true,complete:true,message:message};
+  }
+  const mediaType = meta.mime_type.startsWith('image/') ? 'image' : 'video';
+  withLock_(() => sheet_('Gallery').appendRow([id,user,meta.title,'',mediaType,'drive',file.id,'',meta.mime_type,now]));
+  return {ok:true,complete:true,item:{id:id,uploader:user,title:meta.title,caption:'',media_type:mediaType,source:'drive',drive_file_id:file.id,mime_type:meta.mime_type,media_url:'https://drive.google.com/uc?export=view&id='+file.id,preview_url:'https://drive.google.com/file/d/'+file.id+'/preview',created_at:now}};
 }
 
 function sendVoiceNote_(user, payload) {
@@ -265,13 +304,18 @@ function uploadMedia_(user, payload) {
 }
 
 function getMessages_(before, limit, after) {
-  const rows = rowsAsObjects_('Messages');
+  const sh = sheet_('Messages'), lastRow = sh.getLastRow();
+  if (lastRow < 2) return [];
   const max = Math.min(Math.max(Number(limit) || 200, 1), 200);
+  const startRow = before ? 2 : Math.max(2, lastRow - 500 + 1);
+  const values = sh.getRange(startRow, 1, lastRow - startRow + 1, 9).getValues();
+  const headers = sh.getRange(1, 1, 1, 9).getValues()[0];
+  const rows = values.map(row => headers.reduce((obj, h, i) => { obj[h] = row[i] instanceof Date ? row[i].toISOString() : row[i]; return obj; }, {}));
   const filtered = after ? rows.filter(r => String(r.created_at) >= String(after)) : rows.filter(r => !before || String(r.created_at) < String(before));
   return filtered.slice(-max).map(r => ({
-    id: r.id, username: r.username, message: r.message, created_at: r.created_at,
-    media_type: r.media_type || 'text', media_id: r.media_id || '', media_url: r.media_url || '',
-    media_mime: r.media_mime || '', duration_seconds: r.duration_seconds || ''
+    id:r.id, username:r.username, message:r.message, created_at:r.created_at,
+    media_type:r.media_type || 'text', media_id:r.media_id || '', media_url:r.media_url || '',
+    media_mime:r.media_mime || '', duration_seconds:r.duration_seconds || ''
   }));
 }
 

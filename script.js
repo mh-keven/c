@@ -4,7 +4,7 @@
   // Paste the deployed Apps Script Web App URL ending in /exec here.
   const API_URL = 'https://script.google.com/macros/s/AKfycbyW_06rlpggyk054n43VbwYhgJarWsoV7CRR8iRm43Lvi_ghUKzSJeOJoM7t5pF6KcsAQ/exec';
   const $ = id => document.getElementById(id);
-  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', messages: [], newest: '', before: '', gallery: [], busy: false, peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0 };
+  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0 };
   const EMOJIS = ['❤️','😀','😃','😄','😁','😆','😂','🤣','😊','😉','😍','🥰','😘','😎','🥳','😏','😔','🥺','😢','😭','😤','😡','🤯','😳','😱','🤗','🤔','😶','🙄','😮','😴','🤒','🫠','🫡','🫣','🫤','👍','🙏','✨','💖','💗','💞','🌹','🫶','🔥','🎉'];
   let pollTimer = null, statusTimer = null;
 
@@ -66,9 +66,9 @@
     $('conn-status').textContent = 'Connected as ' + state.user; $('conn-status').dataset.state = 'online';
     await Promise.all([loadMessages(true), loadGallery(), loadStatus()]);
     clearInterval(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
-    pollTimer = setInterval(() => { if (!document.hidden) loadMessages(false).catch(showApiError); }, 2500);
+    pollTimer = setInterval(() => { if (!document.hidden && !state.messagePolling) loadMessages(false).catch(showApiError); }, 1200);
     statusTimer = setInterval(async () => { if (!document.hidden) { try { await post('touch', {token: state.token}); await loadStatus(); } catch (_) {} } }, 8000);
-    state.callTimer = setInterval(() => { if (!document.hidden) pollCallState().catch(() => {}); }, 1800);
+    state.callTimer = setInterval(() => { if (!document.hidden) pollCallState().catch(() => {}); }, 1400);
     pollCallState().catch(() => {});
   }
 
@@ -84,19 +84,24 @@
   $('logout-btn').addEventListener('click', logout);
 
   async function loadMessages(initial) {
-    const result = await post('messages', { token: state.token, limit: 200, before: initial ? '' : '', after: initial ? '' : state.newest });
-    if (initial) {
-      state.messages = result.messages || []; state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
-      state.before = state.messages.length ? state.messages[0].created_at : '';
-      renderMessages(); return;
-    }
-    const fresh = (result.messages || []).filter(m => !state.messages.some(old => old.id === m.id));
-    if (!fresh.length) return;
-    const scroller = $('messages'), nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
-    state.messages.push(...fresh); state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-    state.newest = state.messages[state.messages.length - 1].created_at; state.before = state.messages[0].created_at;
-    renderMessages();
-    if (nearBottom || fresh.some(m => m.username === state.user)) scroller.scrollTop = scroller.scrollHeight;
+    if (!initial && state.messagePolling) return;
+    state.messagePolling = true;
+    try {
+      const result = await post('messages', {token:state.token, limit:200, before:'', after:initial ? '' : state.newest});
+      if (initial) {
+        state.messages = result.messages || []; state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
+        state.before = state.messages.length ? state.messages[0].created_at : '';
+        renderMessages(); return;
+      }
+      const known = new Set(state.messages.map(old => old.id));
+      const fresh = (result.messages || []).filter(m => !known.has(m.id));
+      if (!fresh.length) return;
+      const scroller = $('messages'), nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
+      state.messages.push(...fresh); state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+      state.newest = state.messages[state.messages.length - 1].created_at; state.before = state.messages[0].created_at;
+      renderMessages();
+      if (nearBottom || fresh.some(m => m.username === state.user)) scroller.scrollTop = scroller.scrollHeight;
+    } finally { state.messagePolling = false; }
   }
   $('load-earlier').addEventListener('click', async () => {
     if (!state.before) return;
@@ -149,12 +154,26 @@
   }
 
   $('composer').addEventListener('submit', async event => {
-    event.preventDefault(); const input = $('message-input'), message = input.value.trim();
+    event.preventDefault();
+    const input = $('message-input'), message = input.value.trim();
     if (!message || state.busy) return;
     state.busy = true; $('send-btn').disabled = true;
-    try { const result = await post('sendMessage', {token:state.token, message}); if (result.message && !state.messages.some(m => m.id === result.message.id)) state.messages.push(result.message); state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at)); state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : ''; input.value = ''; input.style.height = 'auto'; renderMessages(); $('messages').scrollTop = $('messages').scrollHeight; banner(''); }
-    catch (error) { banner(error.message); }
-    finally { state.busy = false; $('send-btn').disabled = false; input.focus(); }
+    const pendingId = 'pending-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    state.messages.push({id:pendingId,username:state.user,message,created_at:new Date().toISOString(),media_type:'text'});
+    state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+    input.value = ''; input.style.height = 'auto'; renderMessages(); $('messages').scrollTop = $('messages').scrollHeight;
+    try {
+      const result = await post('sendMessage', {token:state.token, message});
+      state.messages = state.messages.filter(m => m.id !== pendingId);
+      if (result.message && !state.messages.some(m => m.id === result.message.id)) state.messages.push(result.message);
+      state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+      state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
+      renderMessages(); $('messages').scrollTop = $('messages').scrollHeight; banner('');
+    } catch (error) {
+      state.messages = state.messages.filter(m => m.id !== pendingId);
+      if (!input.value) input.value = message;
+      renderMessages(); banner(error.message);
+    } finally { state.busy = false; $('send-btn').disabled = false; input.focus(); }
   });
   $('message-input').addEventListener('input', () => { const el = $('message-input'); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; });
   $('message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('composer').requestSubmit(); } });
@@ -192,9 +211,16 @@
         state.recordingChunks = [];
         button.disabled = true;
         try {
-          const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read voice note.')); reader.readAsDataURL(blob); });
-          const result = await post('sendVoiceNote', {token:state.token, filename:'voice-note-' + Date.now() + '.webm', mime_type:blob.type || 'audio/webm', base64, duration_seconds:duration});
-          if (result.message && !state.messages.some(m => m.id === result.message.id)) state.messages.push(result.message);
+          const filename = 'voice-note-' + Date.now() + (blob.type.includes('ogg') ? '.ogg' : '.webm');
+          const started = await post('uploadStart', {token:state.token, purpose:'voice', filename, mime_type:blob.type || 'audio/webm', size:blob.size, title:'Voice note', duration_seconds:duration});
+          let result = null;
+          const chunkSize = 1024 * 1024;
+          for (let offset = 0; offset < blob.size; offset += chunkSize) {
+            const end = Math.min(offset + chunkSize, blob.size), chunk = blob.slice(offset, end);
+            const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read voice note chunk.')); reader.readAsDataURL(chunk); });
+            result = await post('uploadChunk', {token:state.token, upload_id:started.upload_id, start:offset, end:end-1, total:blob.size, base64});
+          }
+          if (result?.message && !state.messages.some(m => m.id === result.message.id)) state.messages.push(result.message);
           state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
           state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
           renderMessages(); $('messages').scrollTop = $('messages').scrollHeight; banner('');
@@ -241,7 +267,7 @@
     if (active && call.status === 'pending' && call.role === 'callee') $('video-call-status').textContent = call.caller + ' is requesting a video call.';
     else if (active && call.status === 'pending' && call.role === 'caller') $('video-call-status').textContent = 'Waiting for them to accept…';
     else if (active && call.status === 'accepted') $('video-call-status').textContent = call.connected ? 'Connected' : 'Connecting…';
-    else $('video-call-status').textContent = state.peerOnline ? 'Request a call when you are ready.' : 'The other person needs to be online for a call.';
+    else $('video-call-status').textContent = state.peerOnline ? 'Request a call when you are ready.' : peerName + ' is not online yet.';
   }
 
   function stopLocalMedia(call = state.call) {
@@ -303,10 +329,7 @@
   }
   function setupPeerConnection(call) {
     if (call.pc) return call.pc;
-    const pc = new RTCPeerConnection({iceServers:[
-      {urls:'stun:stun.l.google.com:19302'},
-      {urls:'stun:stun1.l.google.com:19302'}
-    ]});
+    const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}],bundlePolicy:'max-bundle',iceCandidatePoolSize:4});
     call.pc = pc;
     call.remoteStream = new MediaStream();
     $('remote-video').srcObject = call.remoteStream;
@@ -336,9 +359,22 @@
     if (state.call !== call || call.status !== 'accepted') return;
     const pc = setupPeerConnection(call);
     if (!call.localStream) {
-      call.localStream = await navigator.mediaDevices.getUserMedia({audio:true, video:{facingMode:'user'}});
+      call.localStream = await navigator.mediaDevices.getUserMedia({
+        audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true},
+        video:{facingMode:'user', width:{ideal:320,max:480}, height:{ideal:240,max:360}, frameRate:{ideal:15,max:20}}
+      });
       if (state.call !== call) { call.localStream.getTracks().forEach(t=>t.stop()); return; }
       call.localStream.getTracks().forEach(track => pc.addTrack(track, call.localStream));
+      const videoSender = pc.getSenders().find(sender => sender.track && sender.track.kind === 'video');
+      if (videoSender && videoSender.getParameters && videoSender.setParameters) {
+        try {
+          const params = videoSender.getParameters();
+          params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
+          params.encodings[0].maxBitrate = 350000; params.encodings[0].maxFramerate = 15;
+          params.degradationPreference = 'maintain-framerate';
+          await videoSender.setParameters(params);
+        } catch (_) {}
+      }
     }
     if (call.role === 'caller' && !call.offerStarted) {
       call.offerStarted = true;
@@ -526,10 +562,13 @@
 
   async function uploadFiles(files) {
     for (const file of files) {
-      if (!file.type.startsWith('image/') && !file.type.startsWith('video/')) { $('upload-status').textContent = 'Only photos and videos are supported.'; continue; }
+      const extension = file.name.split('.').pop().toLowerCase();
+      const inferred = ({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',jfif:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',avif:'image/avif',heic:'image/heic',heif:'image/heif',bmp:'image/bmp',tif:'image/tiff',tiff:'image/tiff',ico:'image/vnd.microsoft.icon',mp4:'video/mp4',m4v:'video/x-m4v',mov:'video/quicktime',webm:'video/webm',mkv:'video/x-matroska',avi:'video/x-msvideo',mpeg:'video/mpeg',mpg:'video/mpeg','3gp':'video/3gpp',ogv:'video/ogg',ts:'video/mp2t'})[extension] || '';
+      const mimeType = file.type && file.type !== 'application/octet-stream' ? file.type : inferred;
+      if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) { $('upload-status').textContent = 'Unsupported media type. Choose an image or video file.'; continue; }
       $('upload-status').textContent = 'Preparing ' + file.name + '…';
       try {
-        const started = await post('uploadStart', {token:state.token, filename:file.name, mime_type:file.type || 'application/octet-stream', size:file.size, title:file.name.replace(/\.[^.]+$/, '')});
+        const started = await post('uploadStart', {token:state.token, filename:file.name, mime_type:mimeType, size:file.size, title:file.name.replace(/\.[^.]+$/, '')});
         const uploadId = started.upload_id;
         const chunkSize = 1024 * 1024;
         for (let offset = 0; offset < file.size; offset += chunkSize) {
