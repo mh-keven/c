@@ -740,3 +740,12 @@ body { min-height:100%; background:radial-gradient(ellipse at 12% -10%,rgba(30,1
   .gallery-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 }
 @media (max-width:390px) { .gallery-grid { grid-template-columns:1fr; } .header-actions .btn-ghost { margin-left:0; } }
+
+
+/* Give the video area a genuinely wider desktop column without changing mobile stacking. */
+@media (min-width:901px) {
+  .chat-workspace { grid-template-columns:minmax(340px,380px) minmax(0,1fr); }
+}
+@media (min-width:1280px) {
+  .chat-workspace { grid-template-columns:minmax(360px,420px) minmax(0,1fr); }
+}
