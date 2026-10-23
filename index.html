@@ -1,105 +1,58 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#2b1d3a" />
-  <meta name="robots" content="noindex, nofollow" />
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#2b1d3a"><meta name="robots" content="noindex,nofollow">
   <title>Anonyms</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,500&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=5" />
+  <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,500&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
-
-  <!-- ============ LOGIN ============ -->
-  <main id="login-screen" class="screen login">
-    <div class="login-card">
-
-      <form id="login-form" autocomplete="on" novalidate onsubmit="return false">
-        <label class="field">
-          <span>Username</span>
-          <input id="username" type="text" placeholder="Username"
-                 autocomplete="username" autocapitalize="words" autocorrect="off" spellcheck="false" required />
-        </label>
-
-        <label class="field">
-          <span>Password</span>
-          <input id="password" type="password" placeholder="Enter password"
-                 autocomplete="current-password" required />
-        </label>
-
-        <p id="login-error" class="login-error" role="alert" hidden></p>
-
-        <button id="login-btn" type="submit" class="btn-primary">GO AHEAD</button>
-        <p class="ver">v4</p>
-      
-      </form>
-    </div>
-  </main>
-
-  <!-- ============ CHAT ============ -->
-  <div id="chat-screen" class="screen chat" hidden>
-    <header class="chat-header">
-      <div class="header-title">
-        <h2>Here for what?</h2>
-        <p id="conn-status" class="conn-status" data-state="connecting">Connecting…</p>
-      </div>
-      <button id="logout-btn" class="btn-ghost" type="button">Leave</button>
+  <main id="login-screen" class="screen login"><div class="login-card">
+    <h1 class="login-title">Anonyms</h1>
+    <form id="login-form" autocomplete="on">
+      <label class="field"><span>Username</span><input id="username" autocomplete="username" autocapitalize="words" required placeholder="Zek123 or Zubii"></label>
+      <label class="field"><span>Password</span><input id="password" type="password" autocomplete="current-password" required placeholder="Your password"></label>
+      <p id="login-error" class="login-error" role="alert" hidden></p><button id="login-btn" class="btn-primary" type="submit">GO AHEAD</button>
+    </form>
+  </div></main>
+  <main id="app-screen" class="screen chat" hidden>
+    <header class="chat-header"><div class="header-title"><h2>Here for what?</h2><p id="conn-status" class="conn-status" data-state="connecting">Connecting…</p></div>
+      <nav class="header-actions" aria-label="Main navigation"><button id="chat-tab" class="nav-pill active" type="button">Messages</button><button id="gallery-tab" class="nav-pill" type="button">Gallery <span id="gallery-count" class="count-pill">0</span></button><button id="logout-btn" class="btn-ghost" type="button">Leave</button></nav>
     </header>
-
-    <div id="banner" class="banner" hidden></div>
-
-    <section id="messages" class="messages" aria-live="polite" aria-label="Conversation">
-      <button id="load-earlier" class="load-earlier" type="button" hidden>Load earlier messages</button>
-      <div id="message-list"></div>
-      <p id="empty-state" class="empty-state" hidden>No messages yet. Say hi 😊</p>
-    </section>
-
-    <div class="composer-wrap">
-      <div id="emoji-panel" class="emoji-panel" hidden role="dialog" aria-label="Emoji picker"></div>
-      <form id="composer" class="composer" autocomplete="off" onsubmit="return false">
-        <button id="emoji-btn" class="icon-btn" type="button" aria-label="Open emoji picker" aria-expanded="false">😊</button>
-        <textarea id="message-input" rows="1" maxlength="2000"
-                  placeholder="Type a message..." aria-label="Message"></textarea>
-        <button id="send-btn" class="send-btn" type="submit" aria-label="Send message" hidden>
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12 2-12 2z" fill="currentColor"/>
-          </svg>
-        </button>
-      
-        <button id="mic-btn" class="send-btn" type="button" aria-label="Record voice note">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z" fill="currentColor"/>
-          </svg>
-        </button>
-      </form>
-      <div id="recorder" class="recorder" hidden>
-        <button id="rec-cancel" class="icon-btn" type="button" aria-label="Cancel recording">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/></svg>
-        </button>
-        <div class="rec-info"><span class="rec-dot"></span><span id="rec-time">0:00</span><span class="rec-hint">Recording…</span></div>
-        <button id="rec-send" class="send-btn" type="button" aria-label="Send voice note">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12 2-12 2z" fill="currentColor"/></svg>
-        </button>
+    <div id="banner" class="banner" hidden role="status"></div>
+    <section id="chat-view" class="view chat-view">
+      <div class="chat-workspace">
+        <aside id="video-panel" class="video-panel" aria-label="Video call">
+          <p class="video-panel-kicker">VIDEO</p>
+          <h3 id="video-panel-title">Talk face to face</h3>
+          <p id="video-call-status" class="video-call-status" role="status">Check whether the other person is online.</p>
+          <button id="request-video-btn" class="video-request-btn" type="button">Request to Start Video</button>
+          <div id="incoming-call-actions" class="incoming-call-actions" hidden>
+            <button id="accept-video-btn" class="video-request-btn" type="button">Accept</button>
+            <button id="decline-video-btn" class="video-decline-btn" type="button">Decline</button>
+          </div>
+          <div id="remote-video-wrap" class="remote-video-wrap" hidden>
+            <video id="remote-video" autoplay playsinline></video>
+          </div>
+          <button id="end-video-btn" class="video-end-btn" type="button" hidden>End</button>
+        </aside>
+        <div class="chat-main">
+      <div id="messages" class="messages" aria-live="polite" aria-label="Conversation"><button id="load-earlier" class="load-earlier" type="button" hidden>Load earlier messages</button><div id="message-list"></div><p id="empty-state" class="empty-state" hidden>No messages yet. Say hi 😊</p></div>
+      <div class="composer-wrap"><form id="composer" class="composer" autocomplete="off"><button id="emoji-btn" class="icon-btn" type="button" aria-label="Open emoji picker">😊</button><textarea id="message-input" rows="1" maxlength="2000" placeholder="Type a message…" aria-label="Message"></textarea><button id="send-btn" class="send-btn" type="submit" aria-label="Send message">➤</button></form><div id="emoji-panel" class="emoji-panel" hidden></div></div>
+        </div>
       </div>
-
-
-    </div>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <script src="script.js?v=5"></script>
-  <script>
-    // If script.js is missing, cached from an old version, or crashed, say so instead of silently reloading
-    setTimeout(function () {
-      if (!window.__chatReady) {
-        var e = document.getElementById("login-error");
-        e.textContent = "script.js did not load correctly. Re-upload all 3 files, then hard-refresh (check the browser console, F12).";
-        e.hidden = false;
-      }
-    }, 2500);
-  </script>
-</body>
-</html>
+    </section>
+    <section id="gallery-view" class="view gallery-view" hidden>
+      <div class="gallery-heading"><div><p class="eyebrow">YOUR SHARED MOMENTS</p><h2>Our gallery</h2><p>Photos, videos, and little memories.</p></div><button id="open-upload" class="btn-primary upload-open" type="button">＋ Add media</button></div>
+      <section id="upload-panel" class="upload-panel" hidden><div class="upload-options">
+        <label class="upload-drop" id="drop-zone" for="media-files"><span class="upload-icon">↥</span><strong>Drop photos or videos here</strong><span>or click to choose from your device</span><small>Maximum 8 MB per file in this version</small><input id="media-files" type="file" accept="image/*,video/*" multiple hidden></label>
+        <div class="youtube-form"><p class="eyebrow">YOUTUBE VIDEO</p><h3>Paste an unlisted link</h3><label class="field"><span>Video URL</span><input id="youtube-url" type="url" placeholder="https://youtu.be/…"></label><label class="field"><span>Title (optional)</span><input id="youtube-title" maxlength="120" placeholder="A little memory"></label><label class="field"><span>Caption (optional)</span><input id="youtube-caption" maxlength="500" placeholder="Add a note…"></label><button id="save-youtube" class="btn-primary" type="button">Add to gallery</button></div>
+      </div><p id="upload-status" class="upload-status" role="status"></p></section>
+      <div class="gallery-toolbar"><p id="gallery-message">Loading your memories…</p><button id="refresh-gallery" class="text-button" type="button">Refresh</button></div><div id="gallery-grid" class="gallery-grid"></div>
+    </section>
+  </main>
+  <div id="media-modal" class="media-modal" hidden role="dialog" aria-modal="true" aria-label="View media"><button id="close-media" class="modal-close" type="button" aria-label="Close">×</button><div id="media-stage" class="media-stage"></div><div id="media-caption" class="media-caption"></div></div>
+  <script src="script.js?v=6"></script>
+</body></html>
