@@ -238,7 +238,7 @@ function sendVoiceNote_(user, payload) {
   emails.forEach(email => file.addViewer(email));
   const now = new Date().toISOString(), id = Utilities.getUuid();
   const duration = Math.max(1, Number(payload.duration_seconds) || 1);
-  const url = 'https://drive.google.com/uc?export=download&id=' + file.getId();
+  const url = 'https://drive.google.com/uc?export=view&id=' + file.getId();
   withLock_(() => sheet_('Messages').appendRow([id,user,'Voice note',now,'audio',file.getId(),url,mime,duration]));
   return {ok:true,message:{id:id,username:user,message:'Voice note',created_at:now,media_type:'audio',media_id:file.getId(),media_url:url,media_mime:mime,duration_seconds:duration}};
 }
