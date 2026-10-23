@@ -16,7 +16,9 @@ const CFG = {
     Gallery: ['id', 'uploader', 'title', 'caption', 'media_type', 'source', 'drive_file_id', 'youtube_id', 'mime_type', 'created_at'],
     Sessions: ['token_hash', 'username', 'created_at', 'expires_at', 'last_seen'],
     Likes: ['gallery_id', 'username', 'created_at'],
-    Comments: ['id', 'gallery_id', 'username', 'comment', 'created_at']
+    Comments: ['id', 'gallery_id', 'username', 'comment', 'created_at'],
+    Calls: ['id', 'caller', 'callee', 'status', 'created_at', 'updated_at', 'ended_by'],
+    CallSignals: ['id', 'call_id', 'from_user', 'to_user', 'type', 'payload', 'created_at']
   }
 };
 
@@ -61,6 +63,11 @@ function doPost(e) {
       else if (action === 'addYoutube') result = addYoutube_(user, payload.url, payload.title, payload.caption);
       else if (action === 'uploadMedia') result = uploadMedia_(user, payload);
       else if (action === 'touch') { touchSession_(payload.token); result = { ok: true }; }
+      else if (action === 'callRequest') result = requestCall_(user);
+      else if (action === 'callRespond') result = respondCall_(user, payload.call_id, payload.decision);
+      else if (action === 'callSignal') result = addCallSignal_(user, payload.call_id, payload.type, payload.payload);
+      else if (action === 'callPoll') result = pollCall_(user, payload.cursor);
+      else if (action === 'callEnd') result = endCall_(user, payload.call_id);
       else throw new Error('Unknown action');
     }
   } catch (err) { result = { ok: false, error: safeError_(err) }; }
@@ -225,6 +232,86 @@ function peerStatus_(user) {
   return { username: latest.username, online: online, last_seen: latest.last_seen };
 }
 
+
+function requestCall_(user) {
+  const peer = user === 'Keven' ? 'Zubii' : 'Keven';
+  if (!peerStatus_(user).online) throw new Error('Video not possible due to ' + peer + ' offline.');
+  const active = rowsAsObjects_('Calls').filter(r => ['pending','accepted'].includes(String(r.status)) && (r.caller === user || r.callee === user));
+  if (active.length) throw new Error('A video call is already pending or active.');
+  const now = new Date().toISOString();
+  const item = {id:Utilities.getUuid(), caller:user, callee:peer, status:'pending', created_at:now, updated_at:now, ended_by:''};
+  withLock_(() => sheet_('Calls').appendRow([item.id,item.caller,item.callee,item.status,item.created_at,item.updated_at,item.ended_by]));
+  return {ok:true, call:item};
+}
+function respondCall_(user, callId, decision) {
+  if (!['accept','decline'].includes(String(decision))) throw new Error('Invalid call response.');
+  const call = findCall_(callId);
+  if (!call || call.callee !== user || call.status !== 'pending') throw new Error('This video request is no longer available.');
+  const status = decision === 'accept' ? 'accepted' : 'declined';
+  updateCall_(call.id, {status:status, updated_at:new Date().toISOString(), ended_by:decision === 'decline' ? user : ''});
+  return {ok:true, call:Object.assign({},call,{status:status})};
+}
+function addCallSignal_(user, callId, type, payload) {
+  const allowed = ['offer','answer','ice'];
+  if (!allowed.includes(String(type))) throw new Error('Invalid video signal.');
+  const call = findCall_(callId);
+  if (!call || ![call.caller,call.callee].includes(user) || call.status !== 'accepted') throw new Error('Video call is not active.');
+  const to = user === call.caller ? call.callee : call.caller;
+  const data = JSON.stringify(payload || {});
+  if (data.length > 45000) throw new Error('Video connection signal is too large.');
+  withLock_(() => sheet_('CallSignals').appendRow([Utilities.getUuid(),call.id,user,to,String(type),data,new Date().toISOString()]));
+  return {ok:true};
+}
+function pollCall_(user, cursor) {
+  let allCalls = rowsAsObjects_('Calls').filter(r => r.caller === user || r.callee === user);
+  allCalls.sort((a,b) => String(a.created_at).localeCompare(String(b.created_at)));
+  let call = allCalls.length ? allCalls[allCalls.length - 1] : null;
+  if (call && ['pending','accepted'].includes(String(call.status))) {
+    const peer = call.caller === user ? call.callee : call.caller;
+    if (!peerStatus_(user).online) {
+      updateCall_(call.id, {status:'ended',updated_at:new Date().toISOString(),ended_by:peer});
+      call = Object.assign({},call,{status:'ended',updated_at:new Date().toISOString(),ended_by:peer});
+    } else {
+      const refreshed = findCall_(call.id);
+      if (refreshed) call = refreshed;
+    }
+  }
+  const sh = sheet_('CallSignals');
+  const values = sh.getDataRange().getValues();
+  const after = Math.max(0, Number(cursor) || 0);
+  const signals = [];
+  for (let i = Math.max(1, after + 1); i < values.length; i++) {
+    const row = values[i];
+    if (String(row[1]) !== String(call && call.id || '') || String(row[3]) !== user) continue;
+    let payload = {};
+    try { payload = JSON.parse(String(row[5] || '{}')); } catch (_) {}
+    signals.push({seq:i, id:String(row[0]), call_id:String(row[1]), from_user:String(row[2]), type:String(row[4]), payload:payload});
+  }
+  return {ok:true, call:call, signals:signals, cursor:Math.max(0,values.length - 1)};
+}
+function endCall_(user, callId) {
+  const call = findCall_(callId);
+  if (!call || ![call.caller,call.callee].includes(user)) return {ok:true};
+  if (['pending','accepted'].includes(String(call.status))) updateCall_(call.id,{status:'ended',updated_at:new Date().toISOString(),ended_by:user});
+  return {ok:true};
+}
+function findCall_(callId) {
+  const id = String(callId || '');
+  if (!id) return null;
+  const rows = rowsAsObjects_('Calls');
+  const row = rows.find(r => String(r.id) === id);
+  return row || null;
+}
+function updateCall_(callId, updates) {
+  const sh = sheet_('Calls'), values = sh.getDataRange().getValues();
+  const headers = values[0] || [];
+  const idCol = headers.indexOf('id');
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][idCol]) !== String(callId)) continue;
+    Object.keys(updates).forEach(key => { const col = headers.indexOf(key); if (col >= 0) sh.getRange(i + 1,col + 1).setValue(updates[key]); });
+    return;
+  }
+}
 function touchSession_(token) {
   const hash = digest_(String(token || ''));
   const sh = sheet_('Sessions');
