@@ -47,7 +47,10 @@
 
   $('login-form').addEventListener('submit', async event => {
     event.preventDefault(); loginError('');
-    const username = $('username').value.trim(), password = $('password').value;
+    const enteredUsername = $('username').value.trim();
+    const password = $('password').value;
+    const normalizedUsername = enteredUsername.toLowerCase();
+    const username = normalizedUsername === 'zek123' ? 'Keven' : normalizedUsername === 'zubii' ? 'Zubii' : enteredUsername;
     $('login-btn').disabled = true;
     try {
       const result = await post('login', { username, password });
