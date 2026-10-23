@@ -61,7 +61,7 @@ begin
     return query
       select am.id, am.username, am.message, am.created_at, am.media_type, am.media_path, am.duration_seconds
       from public.anonyms_messages am
-      where am.created_at > p_after
+      where am.created_at >= p_after
       order by am.created_at asc
       limit v_limit;
   else
