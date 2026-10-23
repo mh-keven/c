@@ -48,6 +48,7 @@ function doPost(e) {
     else {
       const user = requireSession_(payload.token);
       if (action === 'logout') { revokeSession_(payload.token); result = { ok: true }; }
+      else if (action === 'whoami') result = { ok: true, user: user };
       else if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(payload.before, payload.limit) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_() };
       else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user) };
