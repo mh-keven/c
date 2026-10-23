@@ -12,7 +12,6 @@ const CFG = {
   MAX_UPLOAD_BYTES: 8 * 1024 * 1024,
   USERS: ['Keven', 'Zubii'],
   SHEETS: {
-    Messages: ['id', 'username', 'message', 'created_at', 'media_type', 'media_id', 'media_url', 'media_mime', 'duration_seconds'],
     Gallery: ['id', 'uploader', 'title', 'caption', 'media_type', 'source', 'drive_file_id', 'youtube_id', 'mime_type', 'created_at'],
     Sessions: ['token_hash', 'username', 'created_at', 'expires_at', 'last_seen'],
     Likes: ['gallery_id', 'username', 'created_at'],
@@ -31,7 +30,7 @@ function doGet(e) {
     else if (action === 'bootstrap') result = bootstrap_();
     else {
       const user = requireSession_(p.token);
-      if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(p.before, p.limit, p.after) };
+      if (action === 'messages') result = { ok: true, user: user, messages: getSupabaseMessages_(p.before, p.limit, p.after) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
       else if (action === 'toggleLike') result = toggleSupabaseLike_(user, p.gallery_id);
       else if (action === 'galleryComments') result = getSupabaseGalleryComments_(p.gallery_id);
@@ -431,21 +430,6 @@ function uploadMedia_(user, payload) {
   return { ok: true, item: { id: id, uploader: user, title: String(payload.title || name).slice(0, 120), caption: String(payload.caption || ''), media_type: type, source: 'drive', drive_file_id: file.getId(), mime_type: mime, media_url: 'https://drive.google.com/uc?export=view&id=' + file.getId(), preview_url: 'https://drive.google.com/file/d/' + file.getId() + '/preview', created_at: now } };
 }
 
-function getMessages_(before, limit, after) {
-  const sh = sheet_('Messages'), lastRow = sh.getLastRow();
-  if (lastRow < 2) return [];
-  const max = Math.min(Math.max(Number(limit) || 200, 1), 200);
-  const startRow = before ? 2 : Math.max(2, lastRow - 500 + 1);
-  const values = sh.getRange(startRow, 1, lastRow - startRow + 1, 9).getValues();
-  const headers = sh.getRange(1, 1, 1, 9).getValues()[0];
-  const rows = values.map(row => headers.reduce((obj, h, i) => { obj[h] = row[i] instanceof Date ? row[i].toISOString() : row[i]; return obj; }, {}));
-  const filtered = after ? rows.filter(r => String(r.created_at) >= String(after)) : rows.filter(r => !before || String(r.created_at) < String(before));
-  return filtered.slice(-max).map(r => ({
-    id:r.id, username:r.username, message:r.message, created_at:r.created_at,
-    media_type:r.media_type || 'text', media_id:r.media_id || '', media_url:r.media_url || '',
-    media_mime:r.media_mime || '', duration_seconds:r.duration_seconds || ''
-  }));
-}
 
 function getGallery_(activeGalleryUser) {
   const likes = supabaseRest_('GET', '/rest/v1/anonyms_gallery_likes?select=gallery_id,username,created_at&order=created_at.asc', null) || [];
