@@ -78,7 +78,7 @@
   $('logout-btn').addEventListener('click', logout);
 
   async function loadMessages(initial) {
-    const result = await post('messages', { token: state.token, limit: 200, before: initial ? '' : state.newest });
+    const result = await post('messages', { token: state.token, limit: 200, before: '' });
     if (initial) {
       state.messages = result.messages || []; state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
       state.before = state.messages.length ? state.messages[0].created_at : '';
