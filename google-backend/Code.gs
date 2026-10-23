@@ -33,9 +33,9 @@ function doGet(e) {
       const user = requireSession_(p.token);
       if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(p.before, p.limit, p.after) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
-      else if (action === 'toggleLike') result = toggleLike_(user, p.gallery_id);
-      else if (action === 'galleryComments') result = getGalleryComments_(p.gallery_id);
-      else if (action === 'addComment') result = addGalleryComment_(user, p.gallery_id, p.comment);
+      else if (action === 'toggleLike') result = toggleSupabaseLike_(user, p.gallery_id);
+      else if (action === 'galleryComments') result = getSupabaseGalleryComments_(p.gallery_id);
+      else if (action === 'addComment') result = addSupabaseGalleryComment_(user, p.gallery_id, p.comment);
       else if (action === 'whoami') result = { ok: true, user: user };
       else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user) };
       else throw new Error('Unknown action');
@@ -60,13 +60,13 @@ function doPost(e) {
         result = { ok: true };
       }
       else if (action === 'whoami') result = { ok: true, user: user };
-      else if (action === 'messages') result = { ok: true, user: user, messages: getMessages_(payload.before, payload.limit, payload.after) };
+      else if (action === 'messages') result = { ok: true, user: user, messages: getSupabaseMessages_(payload.before, payload.limit, payload.after) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
-      else if (action === 'toggleLike') result = toggleLike_(user, payload.gallery_id);
-      else if (action === 'galleryComments') result = getGalleryComments_(payload.gallery_id);
-      else if (action === 'addComment') result = addGalleryComment_(user, payload.gallery_id, payload.comment);
+      else if (action === 'toggleLike') result = toggleSupabaseLike_(user, payload.gallery_id);
+      else if (action === 'galleryComments') result = getSupabaseGalleryComments_(payload.gallery_id);
+      else if (action === 'addComment') result = addSupabaseGalleryComment_(user, payload.gallery_id, payload.comment);
       else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user) };
-      else if (action === 'sendMessage') result = sendMessage_(user, payload.message);
+      else if (action === 'sendMessage') result = sendSupabaseMessage_(user, payload.message);
       else if (action === 'addYoutube') result = addYoutube_(user, payload.url, payload.title, payload.caption);
       else if (action === 'uploadMedia') result = uploadMedia_(user, payload);
       else if (action === 'uploadStart') result = startResumableUpload_(user, payload);
@@ -177,14 +177,94 @@ function logSupabaseLoginEvent_(username, eventType) {
   }
 }
 
-function sendMessage_(user, message) {
+/* Supabase is accessed only from this trusted Apps Script backend. Never put the service-role key in browser code. */
+function supabaseRest_(method, path, payload, prefer) {
+  const props = PropertiesService.getScriptProperties();
+  const base = String(props.getProperty('SUPABASE_URL') || '').replace(/\/+$/, '');
+  const key = props.getProperty('SUPABASE_SERVICE_ROLE_KEY');
+  if (!base || !key) throw new Error('Supabase backend is not configured. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Apps Script Script Properties.');
+  const options = { method: String(method || 'GET').toLowerCase(), headers: { apikey:key, Authorization:'Bearer ' + key, Prefer:prefer || 'return=representation' }, muteHttpExceptions:true };
+  if (payload !== null && payload !== undefined) { options.contentType = 'application/json'; options.payload = JSON.stringify(payload); }
+  const response = UrlFetchApp.fetch(base + path, options), code = response.getResponseCode(), body = response.getContentText() || '';
+  if (code < 200 || code >= 300) {
+    console.warn('Supabase request failed: ' + code + ' ' + body.slice(0,180));
+    throw new Error('Supabase could not complete this request (' + code + '). Check the Supabase migration and Apps Script properties.');
+  }
+  if (!body) return null;
+  try { return JSON.parse(body); } catch (_) { return body; }
+}
+function supabaseStorageUpload_(path, blob) {
+  const props = PropertiesService.getScriptProperties();
+  const base = String(props.getProperty('SUPABASE_URL') || '').replace(/\/+$/, '');
+  const key = props.getProperty('SUPABASE_SERVICE_ROLE_KEY');
+  if (!base || !key) throw new Error('Supabase backend is not configured.');
+  const response = UrlFetchApp.fetch(base + '/storage/v1/object/anonyms-voice-notes/' + path.split('/').map(encodeURIComponent).join('/'), {
+    method:'post', contentType:blob.getContentType() || 'audio/webm',
+    headers:{apikey:key, Authorization:'Bearer ' + key, 'x-upsert':'false'},
+    payload:blob.getBytes(), muteHttpExceptions:true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) throw new Error('Could not save voice note in Supabase Storage (' + response.getResponseCode() + ').');
+}
+function supabaseSignedAudioUrl_(path) {
+  if (!path) return '';
+  const props = PropertiesService.getScriptProperties();
+  const base = String(props.getProperty('SUPABASE_URL') || '').replace(/\/+$/, '');
+  const key = props.getProperty('SUPABASE_SERVICE_ROLE_KEY');
+  const response = UrlFetchApp.fetch(base + '/storage/v1/object/sign/anonyms-voice-notes/' + String(path).split('/').map(encodeURIComponent).join('/'), {
+    method:'post', contentType:'application/json', headers:{apikey:key,Authorization:'Bearer '+key},
+    payload:JSON.stringify({expiresIn:86400}), muteHttpExceptions:true
+  });
+  if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) throw new Error('Could not create a secure voice-note link.');
+  const result = JSON.parse(response.getContentText() || '{}');
+  const signed = result.signedURL || result.signedUrl || '';
+  return signed.startsWith('http') ? signed : base + '/storage/v1' + (signed.startsWith('/') ? signed : '/' + signed);
+}
+function getSupabaseMessages_(before, limit, after) {
+  const max = Math.min(Math.max(Number(limit) || 200,1),200);
+  let query = '/rest/v1/anonyms_messages?select=id,username,message,created_at,media_type,media_path,duration_seconds&order=created_at.asc&limit=' + max;
+  if (before) query += '&created_at=lt.' + encodeURIComponent(String(before));
+  else if (after) query += '&created_at=gte.' + encodeURIComponent(String(after));
+  const rows = supabaseRest_('GET',query,null) || [];
+  return rows.map(r => ({id:r.id,username:r.username,message:r.message || '',created_at:r.created_at,media_type:r.media_type || 'text',media_id:r.media_path || '',media_url:r.media_path ? supabaseSignedAudioUrl_(r.media_path) : '',media_mime:'',duration_seconds:r.duration_seconds || ''}));
+}
+function sendSupabaseMessage_(user, message) {
   message = String(message || '').trim();
   if (!message || message.length > CFG.MAX_MESSAGE_LENGTH) throw new Error('Message must contain 1–2000 characters.');
-  const now = new Date().toISOString();
-  const id = Utilities.getUuid();
-  withLock_(() => sheet_('Messages').appendRow([id, user, message, now, 'text', '', '', '', '']));
-  return { ok: true, message: { id: id, username: user, message: message, created_at: now, media_type: 'text' } };
+  const row = supabaseRest_('POST','/rest/v1/anonyms_messages',[{username:user,message:message,media_type:'text',created_at:new Date().toISOString()}],'return=representation')[0];
+  return {ok:true,message:{id:row.id,username:row.username,message:row.message,created_at:row.created_at,media_type:'text'}};
 }
+function saveSupabaseVoiceNote_(user, driveFile, mime, duration) {
+  const id = Utilities.getUuid(), now = new Date().toISOString();
+  const path = user.toLowerCase() + '/' + id + '.' + (String(mime).includes('ogg') ? 'ogg' : String(mime).includes('mp4') ? 'm4a' : 'webm');
+  const blob = driveFile.getBlob().setContentType(mime || 'audio/webm');
+  supabaseStorageUpload_(path,blob);
+  const row = supabaseRest_('POST','/rest/v1/anonyms_messages',[{id:id,username:user,message:'Voice note',media_type:'audio',media_path:path,duration_seconds:Math.max(1,Number(duration)||1),created_at:now}],'return=representation')[0];
+  try { driveFile.setTrashed(true); } catch (_) {}
+  return {ok:true,message:{id:row.id,username:row.username,message:'Voice note',created_at:row.created_at,media_type:'audio',media_id:path,media_url:supabaseSignedAudioUrl_(path),media_mime:mime,duration_seconds:row.duration_seconds}};
+}
+function toggleSupabaseLike_(user, galleryId) {
+  galleryId = String(galleryId || '');
+  if (!rowsAsObjects_('Gallery').some(r => String(r.id) === galleryId)) throw new Error('Gallery item not found.');
+  const q = '/rest/v1/anonyms_gallery_likes?select=id&gallery_id=eq.' + encodeURIComponent(galleryId) + '&username=eq.' + encodeURIComponent(user);
+  const existing = supabaseRest_('GET',q,null) || [];
+  if (existing.length) { supabaseRest_('DELETE','/rest/v1/anonyms_gallery_likes?gallery_id=eq.'+encodeURIComponent(galleryId)+'&username=eq.'+encodeURIComponent(user),null,'return=minimal'); return {ok:true,liked:false}; }
+  supabaseRest_('POST','/rest/v1/anonyms_gallery_likes',[{gallery_id:galleryId,username:user,created_at:new Date().toISOString()}],'return=minimal');
+  return {ok:true,liked:true};
+}
+function getSupabaseGalleryComments_(galleryId) {
+  galleryId = String(galleryId || '');
+  if (!rowsAsObjects_('Gallery').some(r => String(r.id) === galleryId)) throw new Error('Gallery item not found.');
+  const comments = supabaseRest_('GET','/rest/v1/anonyms_gallery_comments?select=id,gallery_id,username,comment,created_at&gallery_id=eq.'+encodeURIComponent(galleryId)+'&order=created_at.asc&limit=100',null) || [];
+  return {ok:true,comments:comments};
+}
+function addSupabaseGalleryComment_(user, galleryId, comment) {
+  galleryId = String(galleryId || ''); comment = String(comment || '').trim();
+  if (!rowsAsObjects_('Gallery').some(r => String(r.id) === galleryId)) throw new Error('Gallery item not found.');
+  if (!comment || comment.length > 1000) throw new Error('Comment must contain 1–1000 characters.');
+  const row = supabaseRest_('POST','/rest/v1/anonyms_gallery_comments',[{gallery_id:galleryId,username:user,comment:comment,created_at:new Date().toISOString()}],'return=representation')[0];
+  return {ok:true,comment:row};
+}
+
 
 function addYoutube_(user, url, title, caption) {
   const videoId = youtubeId_(String(url || ''));
@@ -295,11 +375,14 @@ function uploadChunk_(user, payload) {
   }
   cache.remove(key);
   if (meta.purpose === 'voice') {
-    const url = 'https://drive.google.com/uc?export=view&id=' + file.id;
-    const duration = Math.max(1, Number(meta.duration_seconds) || 1);
-    const message = {id:id,username:user,message:'Voice note',created_at:now,media_type:'audio',media_id:file.id,media_url:url,media_mime:meta.mime_type,duration_seconds:duration};
-    withLock_(() => sheet_('Messages').appendRow([id,user,'Voice note',now,'audio',file.id,url,meta.mime_type,duration]));
-    return {ok:true,complete:true,message:message};
+    try {
+      const driveFile = DriveApp.getFileById(file.id);
+      const saved = saveSupabaseVoiceNote_(user,driveFile,meta.mime_type,meta.duration_seconds);
+      return {ok:true,complete:true,message:saved.message};
+    } catch (error) {
+      // Keep the Drive copy as a recovery fallback if Supabase is temporarily unavailable.
+      throw new Error('Voice note reached Drive but could not be saved to Supabase. ' + safeError_(error));
+    }
   }
   const mediaType = meta.mime_type.startsWith('image/') ? 'image' : 'video';
   withLock_(() => sheet_('Gallery').appendRow([id,user,meta.title,'',mediaType,'drive',file.id,'',meta.mime_type,now]));
@@ -363,8 +446,8 @@ function getMessages_(before, limit, after) {
 }
 
 function getGallery_(activeGalleryUser) {
-  const likes = rowsAsObjects_('Likes');
-  const comments = rowsAsObjects_('Comments');
+  const likes = supabaseRest_('GET', '/rest/v1/anonyms_gallery_likes?select=gallery_id,username,created_at&order=created_at.asc', null) || [];
+  const comments = supabaseRest_('GET', '/rest/v1/anonyms_gallery_comments?select=gallery_id,username,comment,created_at&order=created_at.asc', null) || [];
   return rowsAsObjects_('Gallery').reverse().slice(0, 300).map(r => {
     const itemLikes = likes.filter(l => String(l.gallery_id) === String(r.id));
     return {
