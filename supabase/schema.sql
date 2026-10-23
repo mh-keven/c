@@ -102,7 +102,7 @@ alter table public.call_rooms enable row level security;
 
 drop policy if exists "Anonyms users can view profiles" on public.profiles;
 create policy "Anonyms users can view profiles" on public.profiles
-for select to authenticated using (exists (select 1 from public.profiles me where me.id = auth.uid()));
+for select to authenticated using (auth.uid() is not null);
 
 drop policy if exists "Anonyms users can read messages" on public.messages;
 create policy "Anonyms users can read messages" on public.messages
