@@ -77,7 +77,7 @@ function doPost(e) {
   // Requests are submitted through a hidden form/iframe to avoid browser CORS issues.
   const json = JSON.stringify(result).replace(/</g, '\\u003c');
   const nonce = String((e && e.parameter && e.parameter.nonce) || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 100);
-  return HtmlService.createHtmlOutput('<!doctype html><meta charset="utf-8"><script>parent.postMessage({type:"anonyms-api",nonce:' + JSON.stringify(nonce) + ',result:' + json + '}, "*");</script>');
+  return HtmlService.createHtmlOutput('<!doctype html><meta charset="utf-8"><script>window.top.postMessage({type:"anonyms-api",nonce:' + JSON.stringify(nonce) + ',result:' + json + '}, "*");</script>');
 }
 
 function setupAnonyms() {
