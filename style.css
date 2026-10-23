@@ -563,3 +563,31 @@ button { cursor: pointer; }
   .gallery-grid { grid-template-columns: 1fr; }
   .header-actions { width: 100%; justify-content: space-between; }
 }
+
+
+/* Clean pale-blue palette and social controls */
+:root { --blue-page: #f1f8ff; --blue-soft: #e3f1ff; --blue-line: #c9e1f7; --blue-accent: #4a9be8; }
+body { background: var(--blue-page); }
+.login-card, .gallery-card, .upload-panel { background: #fff; border-color: var(--blue-line); }
+.login-title, .gallery-heading h2 { color: #23496c; }
+.eyebrow { color: #5599d4; }
+.btn-primary, .send-btn { background: #579fe5; border-color: #579fe5; }
+.btn-primary:hover, .send-btn:hover { background: #3f8bd4; }
+.nav-pill.active { background: #d7ebff; border-color: #b5d8f6; color: #245783; }
+.nav-pill { color: #365d7f; border-color: #c6dff5; }
+.day-sep span { background: #e3f1ff; border-color: #c9e1f7; color: #315f88; }
+.time-gap-sep span { background: #edf6ff; color: #64829e; }
+.gallery-social { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.like-button, .comment-toggle { border: 1px solid var(--blue-line); background: #f4f9ff; color: #355d81; padding: 7px 10px; border-radius: 999px; font-size: .78rem; }
+.like-button.liked { color: #d83c70; background: #fff0f5; border-color: #f2bed0; }
+.who-liked { font-size: .72rem; }
+.comment-toggle { margin-left: auto; }
+.comment-area { margin-top: 10px; border-top: 1px solid var(--blue-line); padding-top: 10px; }
+.comment-list { display: grid; gap: 8px; max-height: 180px; overflow-y: auto; }
+.gallery-comment { display: grid; grid-template-columns: auto 1fr; gap: 3px; margin: 0; font-size: .78rem; overflow-wrap: anywhere; }
+.gallery-comment strong { color: #355d81; }
+.gallery-comment small { grid-column: 1 / -1; color: #849bb0; font-size: .65rem; }
+.comment-empty { color: #849bb0; font-size: .78rem; margin: 0; }
+.comment-form { display: flex; gap: 6px; margin-top: 10px; }
+.comment-form input { min-width: 0; flex: 1; padding: 9px 10px; border: 1px solid var(--blue-line); border-radius: 10px; font: inherit; font-size: .82rem; }
+.comment-form button { padding: 8px 11px; border: 0; border-radius: 10px; color: white; background: #579fe5; font-weight: 700; }
