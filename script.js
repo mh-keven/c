@@ -30,9 +30,9 @@
       });
       let finished = false;
       const cleanup = () => { window.removeEventListener('message', onMessage); form.remove(); frame.remove(); clearTimeout(timeout); };
-      const timeout = setTimeout(() => { if (!finished) { finished = true; cleanup(); reject(new Error('Google backend timed out. Check the Web App deployment and try again.')); } }, 30000);
+      const timeout = setTimeout(() => { if (!finished) { finished = true; cleanup(); reject(new Error('Google backend timed out. Check the Web App deployment and try again.')); } }, 12000);
       const onMessage = event => {
-        if (event.source !== frame.contentWindow || event.data?.type !== 'anonyms-api' || event.data?.nonce !== nonce) return;
+        if (event.data?.type !== 'anonyms-api' || event.data?.nonce !== nonce) return;
         if (finished) return;
         finished = true; cleanup();
         const result = event.data.result;
