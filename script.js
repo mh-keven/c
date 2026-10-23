@@ -189,7 +189,51 @@
       const title = document.createElement('h3'); title.textContent = item.title || (item.media_type === 'image' ? 'Photo' : 'Video');
       const caption = document.createElement('p'); caption.textContent = item.caption || '';
       const meta = document.createElement('small'); meta.textContent = (item.uploader || '') + ' · ' + new Date(item.created_at).toLocaleDateString();
-      details.append(title, caption, meta); card.append(preview, details); grid.append(card);
+      const actions = document.createElement('div'); actions.className = 'gallery-social';
+      const likeBtn = document.createElement('button'); likeBtn.type = 'button'; likeBtn.className = 'like-button' + (item.liked_by_me ? ' liked' : '');
+      likeBtn.textContent = (item.liked_by_me ? '♥' : '♡') + ' ' + ((item.likes || []).length);
+      likeBtn.setAttribute('aria-label', 'Like this item');
+      likeBtn.addEventListener('click', async () => {
+        likeBtn.disabled = true;
+        try { await post('toggleLike', {token:state.token, gallery_id:item.id}); await loadGallery(); }
+        catch (error) { banner(error.message); }
+        finally { likeBtn.disabled = false; }
+      });
+      const whoBtn = document.createElement('button'); whoBtn.type = 'button'; whoBtn.className = 'text-button who-liked';
+      whoBtn.textContent = (item.likes || []).length ? 'Liked by ' + item.likes.join(', ') : 'No likes yet';
+      whoBtn.addEventListener('click', () => { const names = (item.likes || []).join(', '); alert(names ? 'Liked by: ' + names : 'No one has liked this yet.'); });
+      const commentBtn = document.createElement('button'); commentBtn.type = 'button'; commentBtn.className = 'comment-toggle';
+      commentBtn.textContent = 'Comments (' + (item.comment_count || 0) + ')';
+      const commentArea = document.createElement('div'); commentArea.className = 'comment-area'; commentArea.hidden = true;
+      const commentList = document.createElement('div'); commentList.className = 'comment-list';
+      const commentForm = document.createElement('form'); commentForm.className = 'comment-form';
+      const commentInput = document.createElement('input'); commentInput.type = 'text'; commentInput.maxLength = 1000; commentInput.placeholder = 'Write a comment…'; commentInput.setAttribute('aria-label', 'Write a comment');
+      const commentSend = document.createElement('button'); commentSend.type = 'submit'; commentSend.textContent = 'Send';
+      commentForm.append(commentInput, commentSend); commentArea.append(commentList, commentForm);
+      async function fetchComments() {
+        const result = await post('galleryComments', {token:state.token, gallery_id:item.id});
+        commentList.replaceChildren();
+        (result.comments || []).forEach(comment => {
+          const p = document.createElement('p'); p.className = 'gallery-comment';
+          const strong = document.createElement('strong'); strong.textContent = comment.username + ': ';
+          const body = document.createElement('span'); body.textContent = comment.comment;
+          const time = document.createElement('small'); time.textContent = new Date(comment.created_at).toLocaleString();
+          p.append(strong, body, time); commentList.append(p);
+        });
+        if (!result.comments?.length) { const empty = document.createElement('p'); empty.className = 'comment-empty'; empty.textContent = 'No comments yet.'; commentList.append(empty); }
+      }
+      commentBtn.addEventListener('click', async () => {
+        commentArea.hidden = !commentArea.hidden;
+        if (!commentArea.hidden) { try { await fetchComments(); } catch (error) { banner(error.message); } }
+      });
+      commentForm.addEventListener('submit', async event => {
+        event.preventDefault(); const comment = commentInput.value.trim(); if (!comment) return;
+        commentSend.disabled = true;
+        try { await post('addComment', {token:state.token, gallery_id:item.id, comment}); commentInput.value = ''; await fetchComments(); await loadGallery(); }
+        catch (error) { banner(error.message); }
+        finally { commentSend.disabled = false; }
+      });
+      actions.append(likeBtn, whoBtn, commentBtn); details.append(title, caption, meta, actions, commentArea); card.append(preview, details); grid.append(card);
     });
   }
   function openMedia(item) {
