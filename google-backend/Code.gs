@@ -320,13 +320,13 @@ function addGalleryComment_(user, galleryId, comment) {
 }
 function peerStatus_(user) {
   const peerName = user === 'Keven' ? 'Zubii' : 'Keven';
+  const now = Date.now();
   const rows = rowsAsObjects_('Sessions').filter(r => r.username === peerName && r.last_seen);
   if (!rows.length) return { username: peerName, online: false, last_seen: null };
   rows.sort((a, b) => String(b.last_seen).localeCompare(String(a.last_seen)));
-  const latest = rows[0];
-  const recent = Date.now() - new Date(latest.last_seen).getTime() < 30000;
-  const sessionValid = new Date(latest.expires_at).getTime() > Date.now();
-  return { username: peerName, online: recent && sessionValid, last_seen: latest.last_seen };
+  const active = rows.find(r => new Date(r.expires_at).getTime() > now && now - new Date(r.last_seen).getTime() < 30000);
+  const latest = active || rows[0];
+  return { username: peerName, online: !!active, last_seen: latest.last_seen };
 }
 
 
