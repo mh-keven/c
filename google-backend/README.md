@@ -3,9 +3,9 @@
 This is a fresh backend for Anonyms. It does not use Supabase. It is deliberately kept separate from the current live frontend until the Google deployment has been configured and tested.
 
 ## Services
-- Google Sheets: messages, gallery metadata, session hashes.
+- Google Sheets: messages, gallery metadata, session hashes, video-call state, and WebRTC signaling messages.
 - Google Drive: uploaded photos/videos in a private folder.
-- Google Apps Script: login checks, session validation, API operations.
+- Google Apps Script: login checks, session validation, API operations, presence checks, and video-call signaling.
 - YouTube: unlisted video hosting; only video ID and metadata are stored in Sheets.
 
 ## Setup
@@ -20,6 +20,13 @@ This is a fresh backend for Anonyms. It does not use Supabase. It is deliberatel
 5. Deploy → New deployment → **Web app**. Execute as **you**. Set access to **Anyone** so the login page can call the API; application access is still checked by the script. Copy the deployment URL ending in `/exec`.
 6. Do not share the spreadsheet or Drive folder publicly. Keep both passwords and the script editor access private.
 7. Add the deployment URL to the frontend configuration only after reviewing and testing the deployment.
+
+## Video calls
+- The chat includes a compact left-side panel with Request to Start Video, incoming Accept/Decline, remote-video-only display, and one End button.
+- Camera and microphone permissions are requested only after the recipient accepts. The page does not show a self-view or offer mute/camera-toggle controls.
+- Ending the call, logging out, navigating away, closing the page, or detecting a disconnected peer triggers local media-track cleanup. Browsers cannot guarantee page-unload cleanup after a crash or power loss.
+- Calls use browser WebRTC with public STUN servers. Some restrictive networks require a TURN relay; configure a trusted TURN service before relying on calls across all networks.
+- The Apps Script database is used for signaling/presence only, not for transporting live audio/video.
 
 ## Important limitations and privacy
 - Google Apps Script is not a high-throughput realtime database. The initial implementation uses polling and is intended for a small, two-person chat.
