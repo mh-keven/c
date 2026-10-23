@@ -5,7 +5,7 @@ This change adds a direct Supabase path for chat text and voice-note bytes while
 ## One-time setup
 
 1. In Supabase, open **SQL Editor** and run [anonyms_fast_chat.sql](./anonyms_fast_chat.sql). It creates a server-side session-hash table and two narrowly scoped RPC functions. It does not grant browser clients direct table access.
-2. In **Apps Script → Project Settings → Script Properties**, add **SUPABASE_ANON_KEY** with your project's **public anon key** (the client/public key). Keep **SUPABASE_SERVICE_ROLE_KEY** in Script Properties only. Never put the service-role key in **script.js** or the browser.
+2. In **Apps Script → Project Settings → Script Properties**, add **SUPABASE_ANON_KEY** with your project's **public anon/publishable key** (the client/public key). Keep **SUPABASE_SERVICE_ROLE_KEY** in Script Properties only. Never put the service-role key in **script.js** or the browser.
 3. Copy the latest [google-backend/Code.gs](../google-backend/Code.gs) into the existing Apps Script project, save it, then **Deploy → Manage deployments → Edit → New version → Deploy**. Keep the existing Web App URL.
 4. Hard-refresh the GitHub Pages site. Log in again or reload once so the backend syncs the current session hash into Supabase.
 
