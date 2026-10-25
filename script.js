@@ -842,11 +842,38 @@
       const likeBtn = document.createElement('button'); likeBtn.type = 'button'; likeBtn.className = 'like-button' + (item.liked_by_me ? ' liked' : '');
       likeBtn.textContent = (item.liked_by_me ? '♥ Liked · ' : '♡ Like · ') + ((item.likes || []).length);
       likeBtn.setAttribute('aria-label', 'Like this item');
-      likeBtn.addEventListener('click', async () => {
-        likeBtn.disabled = true;
-        try { await post('toggleLike', {token:state.token, gallery_id:item.id}); await loadGallery(); }
-        catch (error) { banner(error.message); }
-        finally { likeBtn.disabled = false; }
+      const paintLikeUI = () => {
+        likeBtn.classList.toggle('liked', !!item.liked_by_me);
+        likeBtn.textContent = (item.liked_by_me ? '♥ Liked · ' : '♡ Like · ') + ((item.likes || []).length);
+        whoBtn.textContent = (item.likes || []).length ? 'Liked by ' + item.likes.join(', ') : 'No likes yet';
+      };
+      likeBtn.addEventListener('click', () => {
+        // Optimistic UI: update the visible state immediately, then sync in order.
+        item.liked_by_me = !item.liked_by_me;
+        const names = new Set(item.likes || []);
+        if (item.liked_by_me) names.add(state.user);
+        else names.delete(state.user);
+        item.likes = Array.from(names);
+        paintLikeUI();
+
+        item._pendingLikeCount = (item._pendingLikeCount || 0) + 1;
+        item._likeSyncQueue = (item._likeSyncQueue || Promise.resolve()).then(async () => {
+          try {
+            const result = await post('toggleLike', {token:state.token, gallery_id:item.id});
+            item._pendingLikeCount = Math.max(0, (item._pendingLikeCount || 1) - 1);
+            // Only reconcile when all rapid clicks have finished syncing.
+            if (!item._pendingLikeCount && typeof result.liked === 'boolean' && result.liked !== item.liked_by_me) {
+              item.liked_by_me = result.liked;
+              const latestNames = new Set(item.likes || []);
+              if (result.liked) latestNames.add(state.user); else latestNames.delete(state.user);
+              item.likes = Array.from(latestNames);
+              paintLikeUI();
+            }
+          } catch (error) {
+            item._pendingLikeCount = 0;
+            banner('Like is shown instantly, but could not sync to the server: ' + error.message);
+          }
+        });
       });
       const whoBtn = document.createElement('button'); whoBtn.type = 'button'; whoBtn.className = 'text-button who-liked';
       whoBtn.textContent = (item.likes || []).length ? 'Liked by ' + item.likes.join(', ') : 'No likes yet';
@@ -859,28 +886,54 @@
       const commentInput = document.createElement('input'); commentInput.type = 'text'; commentInput.maxLength = 1000; commentInput.placeholder = 'Write a comment…'; commentInput.setAttribute('aria-label', 'Write a comment');
       const commentSend = document.createElement('button'); commentSend.type = 'submit'; commentSend.textContent = 'Send';
       commentForm.append(commentInput, commentSend); commentArea.append(commentList, commentForm);
+      function appendComment(comment, pending) {
+        const p = document.createElement('p'); p.className = 'gallery-comment' + (pending ? ' comment-pending' : '');
+        const strong = document.createElement('strong'); strong.textContent = comment.username + ': ';
+        const body = document.createElement('span'); body.textContent = comment.comment;
+        const time = document.createElement('small');
+        time.textContent = pending ? 'Sending…' : new Date(comment.created_at).toLocaleString();
+        p.append(strong, body, time); commentList.append(p);
+        return p;
+      }
       async function fetchComments() {
         const result = await post('galleryComments', {token:state.token, gallery_id:item.id});
         commentList.replaceChildren();
-        (result.comments || []).forEach(comment => {
-          const p = document.createElement('p'); p.className = 'gallery-comment';
-          const strong = document.createElement('strong'); strong.textContent = comment.username + ': ';
-          const body = document.createElement('span'); body.textContent = comment.comment;
-          const time = document.createElement('small'); time.textContent = new Date(comment.created_at).toLocaleString();
-          p.append(strong, body, time); commentList.append(p);
-        });
+        (result.comments || []).forEach(comment => appendComment(comment, false));
         if (!result.comments?.length) { const empty = document.createElement('p'); empty.className = 'comment-empty'; empty.textContent = 'No comments yet.'; commentList.append(empty); }
       }
       commentBtn.addEventListener('click', async () => {
         commentArea.hidden = !commentArea.hidden;
         if (!commentArea.hidden) { try { await fetchComments(); } catch (error) { banner(error.message); } }
       });
-      commentForm.addEventListener('submit', async event => {
-        event.preventDefault(); const comment = commentInput.value.trim(); if (!comment) return;
-        commentSend.disabled = true;
-        try { await post('addComment', {token:state.token, gallery_id:item.id, comment}); commentInput.value = ''; await fetchComments(); await loadGallery(); }
-        catch (error) { banner(error.message); }
-        finally { commentSend.disabled = false; }
+      commentForm.addEventListener('submit', event => {
+        event.preventDefault();
+        const comment = commentInput.value.trim();
+        if (!comment) return;
+
+        // Put the comment on screen and clear the input before contacting the backend.
+        const optimistic = {username:state.user, comment:comment, created_at:new Date().toISOString()};
+        const empty = commentList.querySelector('.comment-empty');
+        if (empty) empty.remove();
+        const optimisticNode = appendComment(optimistic, true);
+        commentInput.value = '';
+        item.comment_count = (Number(item.comment_count) || 0) + 1;
+        commentBtn.textContent = '💬 Comments (' + item.comment_count + ')';
+        commentSend.disabled = false;
+
+        // Keep the UI responsive; let the backend catch up in the background.
+        post('addComment', {token:state.token, gallery_id:item.id, comment}).then(async () => {
+          if (!commentArea.hidden) {
+            try { await fetchComments(); } catch (_) {
+              optimisticNode.classList.remove('comment-pending');
+              optimisticNode.querySelector('small').textContent = 'Saved';
+            }
+          }
+        }).catch(error => {
+          optimisticNode.classList.remove('comment-pending');
+          optimisticNode.classList.add('comment-failed');
+          optimisticNode.querySelector('small').textContent = 'Not synced';
+          banner('Comment is visible locally, but could not sync to the server: ' + error.message);
+        });
       });
       actions.append(likeBtn, whoBtn, commentBtn); details.append(title, caption, meta, actions, commentArea); card.append(preview, details); grid.append(card);
     });
