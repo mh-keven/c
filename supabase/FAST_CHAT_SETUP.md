@@ -16,3 +16,8 @@ The browser uses the public anon key only to call the two RPC functions. The fun
 With the public key configured, Apps Script creates a one-object signed upload URL, the browser sends the audio bytes directly to the private Supabase Storage bucket, and Apps Script finalizes the message record and returns a signed playback URL. The audio blob no longer passes through Google Sheets, Google Drive, or Apps Script. Deploy the updated **Code.gs** before testing this path.
 
 The pre-existing **anonyms_bridge.sql** migration must already be applied and the **anonyms-voice-notes** bucket must exist. Without the public key, voice notes fall back to a single Apps Script request that writes the blob directly to Supabase Storage without a Drive copy.
+
+
+## Faster voice-note finalization
+
+Run [`anonyms_fast_voice.sql`](./anonyms_fast_voice.sql) in the Supabase SQL Editor after the migrations above. It adds a session-verified RPC that creates the database message after the browser uploads the audio bytes to the private `anonyms-voice-notes` bucket. The browser never receives the service-role key. The UI shows the local recording immediately while the upload finishes; actual delivery speed still depends on the connection and Supabase response time.
