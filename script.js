@@ -904,7 +904,7 @@
   $('media-files').addEventListener('change', event => uploadFiles(Array.from(event.target.files || [])));
   const drop = $('drop-zone');
   ['dragenter','dragover'].forEach(type => drop.addEventListener(type, event => { event.preventDefault(); drop.classList.add('dragover'); }));
-  ['dragleave','drop'].forEach(type => drop.addEventListener('dragleave', event => { event.preventDefault(); drop.classList.remove('dragover'); }));
+  ['dragleave','drop'].forEach(type => drop.addEventListener(type, event => { event.preventDefault(); drop.classList.remove('dragover'); }));
   drop.addEventListener('drop', event => {
     event.preventDefault();
     drop.classList.remove('dragover');
