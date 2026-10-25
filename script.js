@@ -262,6 +262,30 @@
   $('logout-btn').addEventListener('click', logout);
   syncComposerActions();
 
+  function hydrateAudioInBackground(messages) {
+    const pending = messages.filter(message => message.media_type === 'audio' && message.media_id && !message.media_url);
+    if (!pending.length) return;
+    hydrateAudioUrls(pending).then(() => {
+      const hydratedIds = new Set(pending.filter(message => message.media_url).map(message => message.id));
+      if (!hydratedIds.size || !state.messages.some(message => hydratedIds.has(message.id))) return;
+      const scroller = $('messages');
+      const nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
+      const previousHeight = scroller.scrollHeight;
+      const previousTop = scroller.scrollTop;
+      renderMessages();
+      if (nearBottom) scroller.scrollTop = scroller.scrollHeight;
+      else scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
+    }).catch(error => console.warn('Could not load voice-note playback links yet.', error));
+  }
+
+  function scrollChatToLatest() {
+    const scroller = $('messages');
+    const previousBehavior = scroller.style.scrollBehavior;
+    scroller.style.scrollBehavior = 'auto';
+    scroller.scrollTop = scroller.scrollHeight;
+    requestAnimationFrame(() => { scroller.style.scrollBehavior = previousBehavior; });
+  }
+
   async function loadMessages(initial) {
     if (!initial && state.messagePolling) return false;
     state.messagePolling = true;
@@ -271,24 +295,14 @@
         before:initial ? '' : '',
         after:initial ? '' : state.newest
       });
-      if (initial) await hydrateAudioUrls(received);
-      else {
-        const alreadyKnown = new Set(state.messages.map(message => message.id));
-        await hydrateAudioUrls(received.filter(message => !alreadyKnown.has(message.id)));
-      }
       if (initial) {
         state.messages = received;
         state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
         state.before = state.messages.length ? state.messages[0].created_at : '';
         renderMessages();
         // WhatsApp-style initial view: show the newest message instead of the top of history.
-        requestAnimationFrame(() => {
-          const scroller = $('messages');
-          const previousBehavior = scroller.style.scrollBehavior;
-          scroller.style.scrollBehavior = 'auto';
-          scroller.scrollTop = scroller.scrollHeight;
-          requestAnimationFrame(() => { scroller.style.scrollBehavior = previousBehavior; });
-        });
+        scrollChatToLatest();
+        hydrateAudioInBackground(received);
         return false;
       }
 
@@ -308,6 +322,7 @@
       state.lastChatActivity = Date.now();
       renderMessages();
       if (nearBottom || fresh.some(message => message.username === state.user)) scroller.scrollTop = scroller.scrollHeight;
+      hydrateAudioInBackground(fresh);
       return true;
     } finally { state.messagePolling = false; }
   }
@@ -319,7 +334,6 @@
       const previousHeight = scroller.scrollHeight;
       const previousTop = scroller.scrollTop;
       const old = await fetchChatMessages({before:state.before, limit:200});
-      await hydrateAudioUrls(old);
       const ids = new Set(state.messages.map(m => m.id));
       const unique = old.filter(m => !ids.has(m.id));
       if (unique.length) {
@@ -331,6 +345,7 @@
         scroller.style.scrollBehavior = 'auto';
         scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
         requestAnimationFrame(() => { scroller.style.scrollBehavior = previousBehavior; });
+        hydrateAudioInBackground(unique);
       }
       if (old.length < 200) $('load-earlier').hidden = true;
     } catch (e) { banner(e.message); } finally { $('load-earlier').disabled = false; }
