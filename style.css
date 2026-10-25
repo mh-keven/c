@@ -616,6 +616,9 @@ body { background: var(--blue-page); }
 .gallery-comment { display: grid; grid-template-columns: auto 1fr; gap: 3px; margin: 0; font-size: .78rem; overflow-wrap: anywhere; }
 .gallery-comment strong { color: #355d81; }
 .gallery-comment small { grid-column: 1 / -1; color: #849bb0; font-size: .65rem; }
+.gallery-comment.comment-pending small { color: #579fe5; }
+.gallery-comment.comment-failed { opacity: .8; }
+.gallery-comment.comment-failed small { color: #b45b68; }
 .comment-empty { color: #849bb0; font-size: .78rem; margin: 0; }
 .comment-form { display: flex; gap: 6px; margin-top: 10px; }
 .comment-form input { min-width: 0; flex: 1; padding: 9px 10px; border: 1px solid var(--blue-line); border-radius: 10px; font: inherit; font-size: .82rem; }
