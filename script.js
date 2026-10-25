@@ -173,7 +173,7 @@
       // which can break playback and adds unnecessary transfer overhead.
       const response = await fetch(prepared.upload_url, {
         method:'PUT',
-        headers:{apikey:state.supabaseAnonKey, 'Content-Type':mime, 'x-upsert':'false'},
+        headers:{apikey:state.supabaseAnonKey, 'Content-Type':mime.split(';')[0], 'x-upsert':'false'},
         body:blob,
         cache:'no-store'
       });
