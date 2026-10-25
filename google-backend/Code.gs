@@ -333,7 +333,8 @@ function getSupabaseMessages_(before, limit, after) {
   else query += '&order=created_at.desc';
   const rows = supabaseRest_('GET',query,null) || [];
   if (!after) rows.reverse();
-  return rows.map(r => ({id:r.id,username:r.username,message:r.message || '',created_at:r.created_at,media_type:r.media_type || 'text',media_id:r.media_path || '',media_url:r.media_path ? supabaseSignedAudioUrl_(r.media_path) : '',media_mime:'',duration_seconds:r.duration_seconds || ''}));
+  // The browser signs playback links asynchronously so message rendering does not wait on one storage request per voice note.
+  return rows.map(r => ({id:r.id,username:r.username,message:r.message || '',created_at:r.created_at,media_type:r.media_type || 'text',media_id:r.media_path || '',media_url:'',media_mime:'',duration_seconds:r.duration_seconds || ''}));
 }
 function sendSupabaseMessage_(user, message) {
   message = String(message || '').trim();
