@@ -711,19 +711,17 @@ function normalizeUser_(value) {
   return name === 'keven' ? 'Keven' : name === 'zubii' ? 'Zubii' : '';
 }
 function youtubeId_(url) {
-  let parsed;
-  try { parsed = new URL(String(url || '').trim()); } catch (_) { return ''; }
-  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-  const youtubeHosts = ['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com', 'youtu.be'];
-  if (youtubeHosts.indexOf(host) < 0) return '';
-  let id = '';
-  if (host === 'youtu.be') id = parsed.pathname.split('/').filter(Boolean)[0] || '';
-  else if (parsed.pathname === '/watch') id = parsed.searchParams.get('v') || '';
-  else {
-    const match = parsed.pathname.match(/^\/(?:embed|shorts|live)\/([A-Za-z0-9_-]{11})(?:\/|$)/);
-    id = match ? match[1] : '';
-  }
-  return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : '';
+  const value = String(url || '').trim();
+  if (!/^https?:\/\//i.test(value)) return '';
+  const hostMatch = value.match(/^https?:\/\/([^/?#]+)/i);
+  const host = hostMatch ? hostMatch[1].toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '') : '';
+  const allowed = ['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com', 'youtu.be'];
+  if (allowed.indexOf(host) < 0) return '';
+  let match = null;
+  if (host === 'youtu.be') match = value.match(/^https?:\/\/(?:www\.)?youtu\.be\/([A-Za-z0-9_-]{11})(?:[?&#/]|$)/i);
+  if (!match) match = value.match(/[?&]v=([A-Za-z0-9_-]{11})(?:[&#]|$)/i);
+  if (!match) match = value.match(/(?:youtube\.com|youtube-nocookie\.com)\/(?:embed|shorts|live)\/([A-Za-z0-9_-]{11})(?:[?&#/]|$)/i);
+  return match ? match[1] : '';
 }
 function sheet_(name) {
   const id = PropertiesService.getScriptProperties().getProperty(CFG.SHEET_ID_PROPERTY);
