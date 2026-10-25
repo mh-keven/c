@@ -868,3 +868,14 @@ body { min-height:100%; background:radial-gradient(ellipse at 12% -10%,rgba(30,1
   font-weight: 700;
   cursor: pointer;
 }
+
+
+/* Make uploaded gallery titles and descriptions clearly readable. */
+.gallery-card-details { background: #fff; color: #171923; }
+.gallery-card-details h3 { color: #171923; font-size: 1rem; font-weight: 750; line-height: 1.35; }
+.gallery-card-details p { color: #343b4a; font-size: .9rem; line-height: 1.5; white-space: pre-wrap; }
+.gallery-card-details small { color: #5d6678; }
+.gallery-image-unavailable {
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+  padding: 18px; color: #343b4a; background: #f3f5f8; font-size: .85rem; text-align: center;
+}
