@@ -21,3 +21,12 @@ The pre-existing **anonyms_bridge.sql** migration must already be applied and th
 ## Faster voice-note finalization
 
 Run [`anonyms_fast_voice.sql`](./anonyms_fast_voice.sql) in the Supabase SQL Editor after the migrations above. It adds a session-verified RPC that creates the database message after the browser uploads the audio bytes to the private `anonyms-voice-notes` bucket. The browser never receives the service-role key. The UI shows the local recording immediately while the upload finishes; actual delivery speed still depends on the connection and Supabase response time.
+
+
+## Google Drive gallery storage (username/password users)
+
+Gallery photos and videos are stored in the Google Drive folder owned by the account that deploys the Apps Script Web App. Keven and Zubii sign in to Anonyms with the existing website usernames/passwords; they do not need to sign in to Google or receive Drive invitations to upload from a device.
+
+To display media on devices that are not signed in to the Drive owner account, the backend sets **only each gallery media file** to **Anyone with the link — Viewer**. It does not make the whole Drive or parent folder public. **Anyone who obtains a direct media URL can open that file without the Anonyms login**, so do not upload media that must remain private. Google Workspace policy can block link sharing; if it does, the upload reports a clear error instead of saving an unusable gallery record.
+
+For older gallery uploads, deploy the latest `google-backend/Code.gs`, then run `enableExistingGalleryLinksForMigration` manually once from the Apps Script editor. Review the execution log for the count and any failures. New uploads use link-view permissions automatically.
