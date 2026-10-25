@@ -829,11 +829,26 @@
         const badge = document.createElement('span'); badge.className = 'media-type-badge'; badge.textContent = '▶ VIDEO'; preview.append(badge);
       } else if (item.media_type === 'image') {
         const img = document.createElement('img'); img.loading = 'lazy'; img.alt = item.title || 'Shared photo'; const driveId = item.drive_file_id || '';
-        img.src = item.media_url || ('https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1200');
+        // Prefer Drive's thumbnail endpoint for embedded gallery images; the uc=view
+        // endpoint can return a non-image response for some Drive files.
+        const imageSources = [
+          'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1200',
+          'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId),
+          'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1000'
+        ];
+        let imageSourceIndex = 0;
+        img.src = imageSources[imageSourceIndex];
         img.addEventListener('error', () => {
-          if (img.dataset.fallbackTried) return;
-          img.dataset.fallbackTried = '1';
-          img.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId);
+          imageSourceIndex += 1;
+          if (imageSourceIndex < imageSources.length) {
+            img.src = imageSources[imageSourceIndex];
+            return;
+          }
+          img.remove();
+          const unavailable = document.createElement('span');
+          unavailable.className = 'gallery-image-unavailable';
+          unavailable.textContent = 'Photo unavailable — check Drive link sharing';
+          preview.append(unavailable);
         });
         preview.append(img);
       } else {
