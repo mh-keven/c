@@ -333,7 +333,8 @@ function getSupabaseMessages_(before, limit, after) {
   else query += '&order=created_at.desc';
   const rows = supabaseRest_('GET',query,null) || [];
   if (!after) rows.reverse();
-  return rows.map(r => ({id:r.id,username:r.username,message:r.message || '',created_at:r.created_at,media_type:r.media_type || 'text',media_id:r.media_path || '',media_url:r.media_path ? supabaseSignedAudioUrl_(r.media_path) : '',media_mime:'',duration_seconds:r.duration_seconds || ''}));
+  // The browser signs playback links asynchronously so message rendering does not wait on one storage request per voice note.
+  return rows.map(r => ({id:r.id,username:r.username,message:r.message || '',created_at:r.created_at,media_type:r.media_type || 'text',media_id:r.media_path || '',media_url:'',media_mime:'',duration_seconds:r.duration_seconds || ''}));
 }
 function sendSupabaseMessage_(user, message) {
   message = String(message || '').trim();
@@ -711,8 +712,17 @@ function normalizeUser_(value) {
   return name === 'keven' ? 'Keven' : name === 'zubii' ? 'Zubii' : '';
 }
 function youtubeId_(url) {
-  const m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-  return m ? m[1] : '';
+  const value = String(url || '').trim();
+  if (!/^https?:\/\//i.test(value)) return '';
+  const hostMatch = value.match(/^https?:\/\/([^/?#]+)/i);
+  const host = hostMatch ? hostMatch[1].toLowerCase().replace(/:\d+$/, '').replace(/^www\./, '') : '';
+  const allowed = ['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com', 'youtu.be'];
+  if (allowed.indexOf(host) < 0) return '';
+  let match = null;
+  if (host === 'youtu.be') match = value.match(/^https?:\/\/(?:www\.)?youtu\.be\/([A-Za-z0-9_-]{11})(?:[?&#/]|$)/i);
+  if (!match) match = value.match(/[?&]v=([A-Za-z0-9_-]{11})(?:[&#]|$)/i);
+  if (!match) match = value.match(/(?:youtube\.com|youtube-nocookie\.com)\/(?:embed|shorts|live)\/([A-Za-z0-9_-]{11})(?:[?&#/]|$)/i);
+  return match ? match[1] : '';
 }
 function sheet_(name) {
   const id = PropertiesService.getScriptProperties().getProperty(CFG.SHEET_ID_PROPERTY);

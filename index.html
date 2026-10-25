@@ -46,13 +46,26 @@
     </section>
     <section id="gallery-view" class="view gallery-view" hidden>
       <div class="gallery-heading"><div><p class="eyebrow">YOUR SHARED MOMENTS</p><h2>Our gallery</h2><p>Photos, videos, and little memories.</p></div><button id="open-upload" class="btn-primary upload-open" type="button">＋ Add media</button></div>
-      <section id="upload-panel" class="upload-panel" hidden><div class="upload-options">
-        <label class="upload-drop" id="drop-zone" for="media-files"><span class="upload-icon">↥</span><strong>Drop photos or videos here</strong><span>or click to choose from your device</span><small>Large photos and videos upload in chunks. Drive limits and network speed still apply.</small><input id="media-files" type="file" accept="image/*,video/*" multiple hidden></label>
-        <div class="youtube-form"><p class="eyebrow">YOUTUBE VIDEO</p><h3>Paste an unlisted link</h3><label class="field"><span>Video URL</span><input id="youtube-url" type="url" placeholder="https://youtu.be/…"></label><label class="field"><span>Title (optional)</span><input id="youtube-title" maxlength="120" placeholder="A little memory"></label><label class="field"><span>Caption (optional)</span><input id="youtube-caption" maxlength="500" placeholder="Add a note…"></label><button id="save-youtube" class="btn-primary" type="button">Add to gallery</button></div>
-      </div><p id="upload-status" class="upload-status" role="status"></p></section>
+      <section id="upload-panel" class="upload-panel" hidden>
+        <div class="upload-methods" role="group" aria-label="Choose an upload method">
+          <button id="upload-mode-drop" class="upload-method active" type="button" aria-pressed="true">Drag &amp; drop</button>
+          <button id="upload-mode-device" class="upload-method" type="button" aria-pressed="false">From device</button>
+          <button id="upload-mode-link" class="upload-method" type="button" aria-pressed="false">YouTube link</button>
+        </div>
+        <div id="upload-drop-pane" class="upload-pane">
+          <div class="upload-drop" id="drop-zone"><span class="upload-icon">↥</span><strong>Drop photos or videos here</strong><span>Only files dropped into this area are uploaded in this mode.</span><small>Large files upload in chunks. Drive limits and network speed still apply.</small></div>
+        </div>
+        <div id="upload-device-pane" class="upload-pane" hidden>
+          <div class="device-upload"><span class="upload-icon">▣</span><strong>Choose photos or videos from your device</strong><p>Pick one or more image/video files. They will upload directly into the gallery.</p><button id="choose-files" class="btn-primary" type="button">Choose files</button><input id="media-files" type="file" accept="image/*,video/*" multiple hidden></div>
+        </div>
+        <div id="upload-link-pane" class="upload-pane" hidden>
+          <div class="youtube-form"><p class="eyebrow">YOUTUBE VIDEO</p><h3>Embed a video from its link</h3><p class="upload-help">Paste a public or unlisted YouTube link. The video opens inside the gallery viewer rather than sending you to YouTube.</p><label class="field"><span>Video URL</span><input id="youtube-url" type="url" placeholder="https://youtu.be/…"></label><label class="field"><span>Title (optional)</span><input id="youtube-title" maxlength="120" placeholder="A little memory"></label><label class="field"><span>Caption (optional)</span><input id="youtube-caption" maxlength="500" placeholder="Add a note…"></label><button id="save-youtube" class="btn-primary" type="button">Add to gallery</button></div>
+        </div>
+        <p id="upload-status" class="upload-status" role="status"></p>
+      </section>
       <div class="gallery-toolbar"><p id="gallery-message">Loading your memories…</p><button id="refresh-gallery" class="text-button" type="button">Refresh</button></div><div id="gallery-grid" class="gallery-grid"></div>
     </section>
   </main>
   <div id="media-modal" class="media-modal" hidden role="dialog" aria-modal="true" aria-label="View media"><button id="close-media" class="modal-close" type="button" aria-label="Close">×</button><div id="media-stage" class="media-stage"></div><div id="media-caption" class="media-caption"></div></div>
-  <script src="script.js?v=10"></script>
+  <script src="script.js?v=11"></script>
 </body></html>

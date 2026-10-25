@@ -5,7 +5,27 @@
   const API_URL = 'https://script.google.com/macros/s/AKfycbyW_06rlpggyk054n43VbwYhgJarWsoV7CRR8iRm43Lvi_ghUKzSJeOJoM7t5pF6KcsAQ/exec';
   const $ = id => document.getElementById(id);
   const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0 };
-  const EMOJIS = ['❤️','😀','😃','😄','😁','😆','😂','🤣','😊','😉','😍','🥰','😘','😎','🥳','😏','😔','🥺','😢','😭','😤','😡','🤯','😳','😱','🤗','🤔','😶','🙄','😮','😴','🤒','🫠','🫡','🫣','🫤','👍','🙏','✨','💖','💗','💞','🌹','🫶','🔥','🎉'];
+  const EMOJI_GROUPS = {
+    smileys: [
+      '😀','😃','😄','😁','😆','😅','😂','🤣','🥲','☺️','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🫣','🤭','🫢','🫡','🤫','🫠','🤥','😶','🫥','😐','🫤','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','😵‍💫','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','💀','☠️','🤡','👻','👽','🤖'
+    ],
+    hands: [
+      '👋','🤚','🖐️','✋','🖖','👌','🤌','🤏','✌️','🤞','🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','👐','🤲','🙏','✍️','💅','🤳','💪','🫶','🫂'
+    ],
+    hearts: [
+      '❤️','🧡','💛','💚','💙','💜','🤎','🖤','🩶','🤍','💔','❤️‍🔥','❤️‍🩹','💕','💞','💓','💗','💖','💘','💝','💟','♥️','❣️','🌹','🥀','💐','🌷','🌸','🌺','🌻','🌼','🪷','🪻'
+    ],
+    celebration: [
+      '✨','⭐','🌟','💫','🔥','🎉','🎊','🎈','🎂','🎁','🏆','🥇','💯','✅','❣️','💋','👑','💍','💎','🪄','🎶','🎵','🎤','🎧','📸','📷','🎬','🎮','⚽','🏀','🏏','🚀','🌈','☀️','🌙','☕','🍰','🍕','🍟','🍫','🍓','🍉'
+    ]
+  };
+  const EMOJI_RECENTS_KEY = 'anonyms_recent_emojis';
+  let recentEmojis = [];
+  try {
+    const savedRecents = JSON.parse(localStorage.getItem(EMOJI_RECENTS_KEY) || '[]');
+    if (Array.isArray(savedRecents)) recentEmojis = savedRecents.filter(item => typeof item === 'string').slice(0, 24);
+  } catch (_) {}
+  let emojiCategory = 'smileys';
   let pollTimer = null, statusTimer = null;
 
   function banner(message) { $('banner').textContent = message; $('banner').hidden = !message; }
@@ -148,13 +168,14 @@
       const prepared = await post('createVoiceUpload', {
         token:state.token, filename, mime_type:mime, duration_seconds:duration
       });
-      const form = new FormData();
-      form.append('cacheControl', '3600');
-      form.append('', blob, filename);
+      // Supabase signed uploads expect the audio file bytes as the request body.
+      // Wrapping the blob in FormData stores multipart boundaries alongside the audio,
+      // which can break playback and adds unnecessary transfer overhead.
       const response = await fetch(prepared.upload_url, {
         method:'PUT',
-        headers:{apikey:state.supabaseAnonKey, 'x-upsert':'false'},
-        body:form
+        headers:{apikey:state.supabaseAnonKey, 'Content-Type':mime.split(';')[0], 'x-upsert':'false'},
+        body:blob,
+        cache:'no-store'
       });
       if (!response.ok) throw new Error('Supabase Storage upload failed (' + response.status + ').');
       return post('finalizeVoiceNote', {
@@ -241,6 +262,30 @@
   $('logout-btn').addEventListener('click', logout);
   syncComposerActions();
 
+  function hydrateAudioInBackground(messages) {
+    const pending = messages.filter(message => message.media_type === 'audio' && message.media_id && !message.media_url);
+    if (!pending.length) return;
+    hydrateAudioUrls(pending).then(() => {
+      const hydratedIds = new Set(pending.filter(message => message.media_url).map(message => message.id));
+      if (!hydratedIds.size || !state.messages.some(message => hydratedIds.has(message.id))) return;
+      const scroller = $('messages');
+      const nearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
+      const previousHeight = scroller.scrollHeight;
+      const previousTop = scroller.scrollTop;
+      renderMessages();
+      if (nearBottom) scroller.scrollTop = scroller.scrollHeight;
+      else scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
+    }).catch(error => console.warn('Could not load voice-note playback links yet.', error));
+  }
+
+  function scrollChatToLatest() {
+    const scroller = $('messages');
+    const previousBehavior = scroller.style.scrollBehavior;
+    scroller.style.scrollBehavior = 'auto';
+    scroller.scrollTop = scroller.scrollHeight;
+    requestAnimationFrame(() => { scroller.style.scrollBehavior = previousBehavior; });
+  }
+
   async function loadMessages(initial) {
     if (!initial && state.messagePolling) return false;
     state.messagePolling = true;
@@ -250,16 +295,14 @@
         before:initial ? '' : '',
         after:initial ? '' : state.newest
       });
-      if (initial) await hydrateAudioUrls(received);
-      else {
-        const alreadyKnown = new Set(state.messages.map(message => message.id));
-        await hydrateAudioUrls(received.filter(message => !alreadyKnown.has(message.id)));
-      }
       if (initial) {
         state.messages = received;
         state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
         state.before = state.messages.length ? state.messages[0].created_at : '';
         renderMessages();
+        // WhatsApp-style initial view: show the newest message instead of the top of history.
+        scrollChatToLatest();
+        hydrateAudioInBackground(received);
         return false;
       }
 
@@ -279,6 +322,7 @@
       state.lastChatActivity = Date.now();
       renderMessages();
       if (nearBottom || fresh.some(message => message.username === state.user)) scroller.scrollTop = scroller.scrollHeight;
+      hydrateAudioInBackground(fresh);
       return true;
     } finally { state.messagePolling = false; }
   }
@@ -286,11 +330,23 @@
     if (!state.before) return;
     $('load-earlier').disabled = true;
     try {
+      const scroller = $('messages');
+      const previousHeight = scroller.scrollHeight;
+      const previousTop = scroller.scrollTop;
       const old = await fetchChatMessages({before:state.before, limit:200});
-      await hydrateAudioUrls(old);
       const ids = new Set(state.messages.map(m => m.id));
       const unique = old.filter(m => !ids.has(m.id));
-      if (unique.length) { state.messages.unshift(...unique); state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at)); state.before = state.messages[0].created_at; renderMessages(); }
+      if (unique.length) {
+        state.messages.unshift(...unique);
+        state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+        state.before = state.messages[0].created_at;
+        renderMessages();
+        const previousBehavior = scroller.style.scrollBehavior;
+        scroller.style.scrollBehavior = 'auto';
+        scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
+        requestAnimationFrame(() => { scroller.style.scrollBehavior = previousBehavior; });
+        hydrateAudioInBackground(unique);
+      }
       if (old.length < 200) $('load-earlier').hidden = true;
     } catch (e) { banner(e.message); } finally { $('load-earlier').disabled = false; }
   });
@@ -357,11 +413,84 @@
   });
   $('message-input').addEventListener('input', () => { const el = $('message-input'); el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; state.lastChatActivity = Date.now(); syncComposerActions(); });
   $('message-input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('composer').requestSubmit(); } });
+  function insertEmoji(emoji) {
+    const input = $('message-input');
+    const start = Number.isInteger(input.selectionStart) ? input.selectionStart : input.value.length;
+    const end = Number.isInteger(input.selectionEnd) ? input.selectionEnd : start;
+    input.setRangeText(emoji, start, end, 'end');
+    input.dispatchEvent(new Event('input'));
+    input.focus();
+    recentEmojis = [emoji, ...recentEmojis.filter(item => item !== emoji)].slice(0, 24);
+    try { localStorage.setItem(EMOJI_RECENTS_KEY, JSON.stringify(recentEmojis)); } catch (_) {}
+    renderEmojiPanel();
+  }
+  function makeEmojiButton(emoji, extraClass) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = extraClass || '';
+    button.textContent = emoji;
+    button.setAttribute('aria-label', 'Insert ' + emoji);
+    button.addEventListener('click', () => insertEmoji(emoji));
+    return button;
+  }
+  function renderEmojiPanel() {
+    const panel = $('emoji-panel');
+    panel.replaceChildren();
+
+    const recentSection = document.createElement('section');
+    recentSection.className = 'emoji-recent';
+    const recentTitle = document.createElement('p');
+    recentTitle.className = 'emoji-section-title';
+    recentTitle.textContent = 'RECENT';
+    const recentGrid = document.createElement('div');
+    recentGrid.className = 'emoji-recent-list';
+    recentGrid.setAttribute('aria-label', 'Recently used emojis');
+    if (recentEmojis.length) recentEmojis.forEach(emoji => recentGrid.append(makeEmojiButton(emoji)));
+    else {
+      const hint = document.createElement('span');
+      hint.className = 'emoji-empty';
+      hint.textContent = 'Emojis you use will appear here';
+      recentGrid.append(hint);
+    }
+    recentSection.append(recentTitle, recentGrid);
+    panel.append(recentSection);
+
+    const tabs = document.createElement('div');
+    tabs.className = 'emoji-tabs';
+    tabs.setAttribute('role', 'group');
+    tabs.setAttribute('aria-label', 'Emoji categories');
+    const categories = [
+      ['Smileys', 'smileys'], ['Hands', 'hands'], ['Hearts & flowers', 'hearts'], ['Fun', 'celebration']
+    ];
+    categories.forEach(([label, key]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'emoji-tab' + (emojiCategory === key ? ' active' : '');
+      button.textContent = label;
+      button.setAttribute('aria-pressed', String(emojiCategory === key));
+      button.addEventListener('click', () => { emojiCategory = key; renderEmojiPanel(); });
+      tabs.append(button);
+    });
+    panel.append(tabs);
+
+    const grid = document.createElement('div');
+    grid.className = 'emoji-grid';
+    grid.setAttribute('aria-label', categories.find(item => item[1] === emojiCategory)?.[0] || 'Emojis');
+    (EMOJI_GROUPS[emojiCategory] || EMOJI_GROUPS.smileys).forEach(emoji => grid.append(makeEmojiButton(emoji)));
+    panel.append(grid);
+  }
   $('emoji-btn').addEventListener('click', () => {
-    const panel = $('emoji-panel'); panel.hidden = !panel.hidden;
-    if (!panel.childElementCount) EMOJIS.forEach(emoji => { const b = document.createElement('button'); b.type = 'button'; b.textContent = emoji; b.addEventListener('click', () => { const input = $('message-input'); input.value += emoji; input.dispatchEvent(new Event('input')); input.focus(); }); panel.append(b); });
+    const panel = $('emoji-panel');
+    panel.hidden = !panel.hidden;
+    $('emoji-btn').setAttribute('aria-expanded', String(!panel.hidden));
+    if (!panel.hidden) renderEmojiPanel();
   });
-  document.addEventListener('click', event => { if (!event.target.closest('#emoji-panel') && !event.target.closest('#emoji-btn')) $('emoji-panel').hidden = true; });
+  document.addEventListener('click', event => {
+    if (!event.target.closest('#emoji-panel') && !event.target.closest('#emoji-btn')) {
+      $('emoji-panel').hidden = true;
+      $('emoji-btn').setAttribute('aria-expanded', 'false');
+    }
+  });
 
   $('voice-note-btn').addEventListener('click', async () => {
     const button = $('voice-note-btn');
@@ -721,7 +850,14 @@
   function openMedia(item) {
     const stage = $('media-stage'); stage.replaceChildren(); $('media-caption').textContent = (item.title || '') + (item.caption ? ' — ' + item.caption : '');
     if (item.source === 'youtube') {
-      const frame = document.createElement('iframe'); frame.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(item.youtube_id) + '?autoplay=1&playsinline=1'; frame.title = item.title || 'YouTube video'; frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share'; frame.allowFullscreen = true; stage.append(frame);
+      // Embed the video in the gallery's own viewer; do not navigate the visitor to YouTube.
+      const frame = document.createElement('iframe');
+      frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(item.youtube_id) + '?autoplay=1&playsinline=1&rel=0';
+      frame.title = item.title || 'YouTube video';
+      frame.referrerPolicy = 'strict-origin-when-cross-origin';
+      frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+      frame.allowFullscreen = true;
+      stage.append(frame);
     } else if (item.media_type === 'image') {
       const img = document.createElement('img'); img.src = item.media_url || ('https://drive.google.com/uc?export=view&id=' + encodeURIComponent(item.drive_file_id)); img.alt = item.title || 'Shared image'; stage.append(img);
     } else {
@@ -735,8 +871,29 @@
   document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMedia(); });
   $('refresh-gallery').addEventListener('click', () => loadGallery().catch(showApiError));
   $('open-upload').addEventListener('click', () => { $('upload-panel').hidden = !$('upload-panel').hidden; });
+  function selectUploadMode(mode) {
+    const modes = {
+      drop: ['upload-mode-drop', 'upload-drop-pane'],
+      device: ['upload-mode-device', 'upload-device-pane'],
+      link: ['upload-mode-link', 'upload-link-pane']
+    };
+    Object.entries(modes).forEach(([key, ids]) => {
+      const button = $(ids[0]);
+      const pane = $(ids[1]);
+      const active = key === mode;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+      pane.hidden = !active;
+    });
+    $('upload-status').textContent = '';
+  }
+  $('upload-mode-drop').addEventListener('click', () => selectUploadMode('drop'));
+  $('upload-mode-device').addEventListener('click', () => selectUploadMode('device'));
+  $('upload-mode-link').addEventListener('click', () => selectUploadMode('link'));
+  $('choose-files').addEventListener('click', () => $('media-files').click());
 
   async function uploadFiles(files) {
+    if (!files || !files.length) return;
     for (const file of files) {
       const extension = file.name.split('.').pop().toLowerCase();
       const inferred = ({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',jfif:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',avif:'image/avif',heic:'image/heic',heif:'image/heif',bmp:'image/bmp',tif:'image/tiff',tiff:'image/tiff',ico:'image/vnd.microsoft.icon',mp4:'video/mp4',m4v:'video/x-m4v',mov:'video/quicktime',webm:'video/webm',mkv:'video/x-matroska',avi:'video/x-msvideo',mpeg:'video/mpeg',mpg:'video/mpeg','3gp':'video/3gpp',ogv:'video/ogg',ts:'video/mp2t'})[extension] || '';
@@ -763,7 +920,11 @@
   const drop = $('drop-zone');
   ['dragenter','dragover'].forEach(type => drop.addEventListener(type, event => { event.preventDefault(); drop.classList.add('dragover'); }));
   ['dragleave','drop'].forEach(type => drop.addEventListener(type, event => { event.preventDefault(); drop.classList.remove('dragover'); }));
-  drop.addEventListener('drop', event => uploadFiles(Array.from(event.dataTransfer.files || [])));
+  drop.addEventListener('drop', event => {
+    event.preventDefault();
+    drop.classList.remove('dragover');
+    uploadFiles(Array.from(event.dataTransfer.files || []));
+  });
   $('save-youtube').addEventListener('click', async () => {
     const url = $('youtube-url').value.trim(); if (!url) { $('upload-status').textContent = 'Paste a YouTube link first.'; return; }
     $('save-youtube').disabled = true; $('upload-status').textContent = 'Adding video…';
