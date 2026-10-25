@@ -828,7 +828,14 @@
         const img = document.createElement('img'); img.loading = 'lazy'; img.alt = ''; img.src = 'https://img.youtube.com/vi/' + encodeURIComponent(item.youtube_id) + '/hqdefault.jpg'; preview.append(img);
         const badge = document.createElement('span'); badge.className = 'media-type-badge'; badge.textContent = '▶ VIDEO'; preview.append(badge);
       } else if (item.media_type === 'image') {
-        const img = document.createElement('img'); img.loading = 'lazy'; img.alt = item.title || 'Shared photo'; img.src = item.media_url || ('https://drive.google.com/uc?export=view&id=' + encodeURIComponent(item.drive_file_id)); preview.append(img);
+        const img = document.createElement('img'); img.loading = 'lazy'; img.alt = item.title || 'Shared photo'; const driveId = item.drive_file_id || '';
+        img.src = item.media_url || ('https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1200');
+        img.addEventListener('error', () => {
+          if (img.dataset.fallbackTried) return;
+          img.dataset.fallbackTried = '1';
+          img.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId);
+        });
+        preview.append(img);
       } else {
         const cover = document.createElement('div'); cover.className = 'video-placeholder'; cover.textContent = '▶'; preview.append(cover);
         const badge = document.createElement('span'); badge.className = 'media-type-badge'; badge.textContent = '▶ VIDEO'; preview.append(badge);
@@ -952,7 +959,15 @@
       frame.allowFullscreen = true;
       stage.append(frame);
     } else if (item.media_type === 'image') {
-      const img = document.createElement('img'); img.src = item.media_url || ('https://drive.google.com/uc?export=view&id=' + encodeURIComponent(item.drive_file_id)); img.alt = item.title || 'Shared image'; stage.append(img);
+      const img = document.createElement('img');
+      const driveId = item.drive_file_id || '';
+      img.src = item.media_url || ('https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1600');
+      img.addEventListener('error', () => {
+        if (img.dataset.fallbackTried) return;
+        img.dataset.fallbackTried = '1';
+        img.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId);
+      });
+      img.alt = item.title || 'Shared image'; stage.append(img);
     } else {
       const frame = document.createElement('iframe'); frame.src = item.preview_url || ('https://drive.google.com/file/d/' + encodeURIComponent(item.drive_file_id) + '/preview'); frame.title = item.title || 'Shared video'; frame.allow = 'autoplay'; frame.allowFullscreen = true; stage.append(frame);
     }
@@ -978,7 +993,21 @@
       name.textContent = file.name;
       const size = document.createElement('small');
       size.textContent = file.size < 1024 * 1024 ? Math.max(1, Math.round(file.size / 1024)) + ' KB' : (file.size / 1024 / 1024).toFixed(1) + ' MB';
-      item.append(name, size);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'remove-selected-file';
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', 'Deselect ' + file.name);
+      remove.addEventListener('click', () => {
+        state.pendingGalleryFiles = state.pendingGalleryFiles.filter(pending => pending !== file);
+        if (!state.pendingGalleryFiles.length) {
+          $('file-upload-title').value = '';
+          $('file-upload-caption').value = '';
+        }
+        renderSelectedFiles();
+        $('media-files').value = '';
+      });
+      item.append(name, size, remove);
       list.append(item);
     });
   }
