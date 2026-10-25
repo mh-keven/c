@@ -1013,15 +1013,6 @@
     $('toggle-link-form').textContent = pane.hidden ? 'Or add a video using a YouTube link' : 'Hide YouTube link uploader';
     if (!pane.hidden) $('youtube-url').focus();
   });
-  $('media-files').addEventListener('change', event => uploadFiles(Array.from(event.target.files || [])));
-  const drop = $('drop-zone');
-  ['dragenter','dragover'].forEach(type => drop.addEventListener(type, event => { event.preventDefault(); drop.classList.add('dragover'); }));
-  ['dragleave','drop'].forEach(type => drop.addEventListener(type, event => { event.preventDefault(); drop.classList.remove('dragover'); }));
-  drop.addEventListener('drop', event => {
-    event.preventDefault();
-    drop.classList.remove('dragover');
-    uploadFiles(Array.from(event.dataTransfer.files || []));
-  });
   $('save-youtube').addEventListener('click', async () => {
     const url = $('youtube-url').value.trim(); if (!url) { $('upload-status').textContent = 'Paste a YouTube link first.'; return; }
     $('save-youtube').disabled = true; $('upload-status').textContent = 'Adding video…';
