@@ -47,19 +47,27 @@
     <section id="gallery-view" class="view gallery-view" hidden>
       <div class="gallery-heading"><div><p class="eyebrow">YOUR SHARED MOMENTS</p><h2>Our gallery</h2><p>Photos, videos, and little memories.</p></div><button id="open-upload" class="btn-primary upload-open" type="button">＋ Add media</button></div>
       <section id="upload-panel" class="upload-panel" hidden>
-        <div class="upload-methods" role="group" aria-label="Choose an upload method">
-          <button id="upload-mode-drop" class="upload-method active" type="button" aria-pressed="true">Drag &amp; drop</button>
-          <button id="upload-mode-device" class="upload-method" type="button" aria-pressed="false">From device</button>
-          <button id="upload-mode-link" class="upload-method" type="button" aria-pressed="false">YouTube link</button>
+        <div class="file-upload-area">
+          <div class="upload-drop" id="drop-zone">
+            <span class="upload-icon">↥</span>
+            <strong>Drop photos or videos here</strong>
+            <span>Or choose files from your device. Both options use the same upload form below.</span>
+            <button id="choose-files" class="btn-primary choose-files-btn" type="button">Choose from device</button>
+            <input id="media-files" type="file" accept="image/*,video/*" multiple hidden>
+          </div>
+          <section id="selected-upload" class="selected-upload" hidden>
+            <div class="selected-upload-heading"><div><p class="eyebrow">READY TO UPLOAD</p><h3 id="selected-upload-count">0 files selected</h3></div><button id="clear-selected-files" class="text-button" type="button">Clear selection</button></div>
+            <ul id="selected-files-list" class="selected-files-list"></ul>
+            <label class="field"><span>Title (optional — leave blank to use each filename)</span><input id="file-upload-title" maxlength="120" placeholder="Give this memory a title"></label>
+            <label class="field"><span>Description / caption (optional)</span><textarea id="file-upload-caption" rows="2" maxlength="500" placeholder="Write a little description…"></textarea></label>
+            <div class="selected-upload-actions"><button id="upload-files-btn" class="btn-primary" type="button">Upload to gallery</button></div>
+          </section>
         </div>
-        <div id="upload-drop-pane" class="upload-pane">
-          <div class="upload-drop" id="drop-zone"><span class="upload-icon">↥</span><strong>Drop photos or videos here</strong><span>Only files dropped into this area are uploaded in this mode.</span><small>Large files upload in chunks. Drive limits and network speed still apply.</small></div>
-        </div>
-        <div id="upload-device-pane" class="upload-pane" hidden>
-          <div class="device-upload"><span class="upload-icon">▣</span><strong>Choose photos or videos from your device</strong><p>Pick one or more image/video files. They will upload directly into the gallery.</p><button id="choose-files" class="btn-primary" type="button">Choose files</button><input id="media-files" type="file" accept="image/*,video/*" multiple hidden></div>
-        </div>
-        <div id="upload-link-pane" class="upload-pane" hidden>
-          <div class="youtube-form"><p class="eyebrow">YOUTUBE VIDEO</p><h3>Embed a video from its link</h3><p class="upload-help">Paste a public or unlisted YouTube link. The video opens inside the gallery viewer rather than sending you to YouTube.</p><label class="field"><span>Video URL</span><input id="youtube-url" type="url" placeholder="https://youtu.be/…"></label><label class="field"><span>Title (optional)</span><input id="youtube-title" maxlength="120" placeholder="A little memory"></label><label class="field"><span>Caption (optional)</span><input id="youtube-caption" maxlength="500" placeholder="Add a note…"></label><button id="save-youtube" class="btn-primary" type="button">Add to gallery</button></div>
+        <div class="link-upload-area">
+          <button id="toggle-link-form" class="text-button link-upload-toggle" type="button" aria-expanded="false">Or add a video using a YouTube link</button>
+          <div id="upload-link-pane" hidden>
+            <div class="youtube-form"><p class="eyebrow">YOUTUBE VIDEO</p><h3>Embed a video from its link</h3><p class="upload-help">Paste a public or unlisted YouTube link. The video opens inside the gallery viewer rather than sending you to YouTube.</p><label class="field"><span>Video URL</span><input id="youtube-url" type="url" placeholder="https://youtu.be/…"></label><label class="field"><span>Title (optional)</span><input id="youtube-title" maxlength="120" placeholder="A little memory"></label><label class="field"><span>Description / caption (optional)</span><input id="youtube-caption" maxlength="500" placeholder="Add a note…"></label><button id="save-youtube" class="btn-primary" type="button">Add to gallery</button></div>
+          </div>
         </div>
         <p id="upload-status" class="upload-status" role="status"></p>
       </section>
@@ -67,5 +75,5 @@
     </section>
   </main>
   <div id="media-modal" class="media-modal" hidden role="dialog" aria-modal="true" aria-label="View media"><button id="close-media" class="modal-close" type="button" aria-label="Close">×</button><div id="media-stage" class="media-stage"></div><div id="media-caption" class="media-caption"></div></div>
-  <script src="script.js?v=11"></script>
+  <script src="script.js?v=12"></script>
 </body></html>
