@@ -4,7 +4,7 @@
   // Paste the deployed Apps Script Web App URL ending in /exec here.
   const API_URL = 'https://script.google.com/macros/s/AKfycbyW_06rlpggyk054n43VbwYhgJarWsoV7CRR8iRm43Lvi_ghUKzSJeOJoM7t5pF6KcsAQ/exec';
   const $ = id => document.getElementById(id);
-  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0 };
+  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0, pendingGalleryFiles: [], localVoiceUrls: [] };
   const EMOJI_GROUPS = {
     smileys: [
       '😀','😃','😄','😁','😆','😅','😂','🤣','🥲','☺️','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🫣','🤭','🫢','🫡','🤫','🫠','🤥','😶','🫥','😐','🫤','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','😵‍💫','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','💀','☠️','🤡','👻','👽','🤖'
@@ -178,9 +178,20 @@
         cache:'no-store'
       });
       if (!response.ok) throw new Error('Supabase Storage upload failed (' + response.status + ').');
-      return post('finalizeVoiceNote', {
-        token:state.token, path:prepared.path, mime_type:mime, duration_seconds:duration
-      });
+      try {
+        const result = await fastSupabaseRpc('anonyms_fast_send_voice', {
+          p_token_hash: await sessionTokenHash(),
+          p_media_path: prepared.path,
+          p_mime_type: mime.split(';')[0].toLowerCase(),
+          p_duration_seconds: duration
+        });
+        return {ok:true, message:result?.message || result};
+      } catch (error) {
+        // Compatibility fallback if the optional fast-voice SQL migration has not been applied yet.
+        if (!String(error.message || '').includes('(404)')) throw error;
+        console.warn('Fast voice RPC is not installed; using the Apps Script finalizer.', error);
+        return post('finalizeVoiceNote', {token:state.token, path:prepared.path, mime_type:mime, duration_seconds:duration});
+      }
     }
 
     // Safe compatibility path for deployments that have not configured the public anon key yet.
@@ -369,7 +380,7 @@
       if (!previous || dayKey(m.created_at) !== dayKey(previous.created_at)) list.append(separator(dateLabel(m.created_at), 'day-sep'));
       else if ((new Date(m.created_at) - new Date(previous.created_at)) >= 5 * 60 * 1000) list.append(separator(timeLabel(m.created_at), 'time-gap-sep'));
       const row = document.createElement('div');
-      row.className = 'row ' + (m.username === state.user ? 'mine' : 'theirs') + (!previous || previous.username !== m.username || dayKey(m.created_at) !== dayKey(previous.created_at) ? ' first' : '');
+      row.className = 'row ' + (m.username === state.user ? 'mine' : 'theirs') + (!previous || previous.username !== m.username || dayKey(m.created_at) !== dayKey(previous.created_at) ? ' first' : '') + (m.pending ? ' pending' : '');
       row.dataset.id = m.id;
       const bubble = document.createElement('div'); bubble.className = 'bubble';
       if (m.media_type === 'audio' && m.media_url) {
@@ -510,7 +521,7 @@
       const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus'].find(type => MediaRecorder.isTypeSupported(type));
       state.recordingChunks = [];
       state.recordingStartedAt = Date.now();
-      state.recorder = new MediaRecorder(stream, { ...(mimeType ? {mimeType} : {}), audioBitsPerSecond: 32000 });
+      state.recorder = new MediaRecorder(stream, { ...(mimeType ? {mimeType} : {}), audioBitsPerSecond: 24000 });
       state.recorder.ondataavailable = event => { if (event.data?.size) state.recordingChunks.push(event.data); };
       state.recorder.onerror = () => { stream.getTracks().forEach(track => track.stop()); button.disabled = false; button.classList.remove('recording'); button.textContent = '🎙️'; banner('Could not record voice note.'); };
       state.recorder.onstop = async () => {
@@ -519,18 +530,45 @@
         const blob = new Blob(state.recordingChunks, {type: state.recorder.mimeType || 'audio/webm'});
         state.recordingChunks = [];
         button.disabled = true;
+        const localUrl = blob.size ? URL.createObjectURL(blob) : '';
+        const pendingId = 'pending-voice-' + Date.now();
         try {
           const maxVoiceBytes = 8 * 1024 * 1024;
           if (!blob.size || blob.size > maxVoiceBytes) throw new Error('Voice note is too large. Please record a shorter note and try again.');
+          const pendingMessage = {
+            id:pendingId, username:state.user, message:'Voice note', created_at:new Date().toISOString(),
+            media_type:'audio', media_id:'', media_url:localUrl, media_mime:blob.type || 'audio/webm',
+            duration_seconds:duration, pending:true
+          };
+          state.localVoiceUrls.push(localUrl);
+          state.messages.push(pendingMessage);
+          state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+          renderMessages();
+          $('messages').scrollTop = $('messages').scrollHeight;
+          banner('Sending voice note…');
           const filename = 'voice-note-' + Date.now() + (blob.type.includes('ogg') ? '.ogg' : blob.type.includes('mp4') ? '.m4a' : '.webm');
           const result = await sendVoiceBlob(blob, filename, duration);
-          if (result.message && !state.messages.some(message => message.id === result.message.id)) state.messages.push(result.message);
+          state.messages = state.messages.filter(message => message.id !== pendingId);
+          if (result.message) {
+            result.message.media_url = localUrl;
+            result.message.media_id = result.message.media_id || result.message.media_path || '';
+            result.message.pending = false;
+            if (!state.messages.some(message => message.id === result.message.id)) state.messages.push(result.message);
+          }
           state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
           state.lastChatActivity = Date.now();
-          renderMessages(); $('messages').scrollTop = $('messages').scrollHeight; banner('');
+          renderMessages();
+          $('messages').scrollTop = $('messages').scrollHeight;
+          banner('');
           scheduleMessagePoll(50);
-        } catch (error) { banner(error.message || 'Voice note failed to send.'); }
-        finally { button.disabled = false; button.classList.remove('recording'); button.textContent = '🎙️'; button.title = 'Record voice note'; button.setAttribute('aria-label','Record voice note'); state.recorder = null; syncComposerActions(); }
+        } catch (error) {
+          state.messages = state.messages.filter(message => message.id !== pendingId);
+          if (localUrl) { URL.revokeObjectURL(localUrl); state.localVoiceUrls = state.localVoiceUrls.filter(url => url !== localUrl); }
+          renderMessages();
+          banner(error.message || 'Voice note failed to send.');
+        } finally {
+          button.disabled = false; button.classList.remove('recording'); button.textContent = '🎙️'; button.title = 'Record voice note'; button.setAttribute('aria-label','Record voice note'); state.recorder = null; syncComposerActions();
+        }
       };
       state.recorder.start();
       button.classList.add('recording'); button.textContent = '■';
@@ -772,7 +810,7 @@
       } catch (_) {}
     }
   });
-  window.addEventListener('beforeunload', () => closeCallResources(state.call));
+  window.addEventListener('beforeunload', () => { closeCallResources(state.call); state.localVoiceUrls.forEach(url => URL.revokeObjectURL(url)); });
 
   async function loadGallery() {
     $('gallery-message').textContent = 'Loading your memories…';
@@ -802,7 +840,7 @@
       const meta = document.createElement('small'); meta.textContent = (item.uploader || '') + ' · ' + new Date(item.created_at).toLocaleDateString();
       const actions = document.createElement('div'); actions.className = 'gallery-social';
       const likeBtn = document.createElement('button'); likeBtn.type = 'button'; likeBtn.className = 'like-button' + (item.liked_by_me ? ' liked' : '');
-      likeBtn.textContent = (item.liked_by_me ? '♥' : '♡') + ' ' + ((item.likes || []).length);
+      likeBtn.textContent = (item.liked_by_me ? '♥ Liked · ' : '♡ Like · ') + ((item.likes || []).length);
       likeBtn.setAttribute('aria-label', 'Like this item');
       likeBtn.addEventListener('click', async () => {
         likeBtn.disabled = true;
@@ -814,7 +852,7 @@
       whoBtn.textContent = (item.likes || []).length ? 'Liked by ' + item.likes.join(', ') : 'No likes yet';
       whoBtn.addEventListener('click', () => { const names = (item.likes || []).join(', '); alert(names ? 'Liked by: ' + names : 'No one has liked this yet.'); });
       const commentBtn = document.createElement('button'); commentBtn.type = 'button'; commentBtn.className = 'comment-toggle';
-      commentBtn.textContent = 'Comments (' + (item.comment_count || 0) + ')';
+      commentBtn.textContent = '💬 Comments (' + (item.comment_count || 0) + ')';
       const commentArea = document.createElement('div'); commentArea.className = 'comment-area'; commentArea.hidden = true;
       const commentList = document.createElement('div'); commentList.className = 'comment-list';
       const commentForm = document.createElement('form'); commentForm.className = 'comment-form';
@@ -871,59 +909,109 @@
   document.addEventListener('keydown', event => { if (event.key === 'Escape') closeMedia(); });
   $('refresh-gallery').addEventListener('click', () => loadGallery().catch(showApiError));
   $('open-upload').addEventListener('click', () => { $('upload-panel').hidden = !$('upload-panel').hidden; });
-  function selectUploadMode(mode) {
-    const modes = {
-      drop: ['upload-mode-drop', 'upload-drop-pane'],
-      device: ['upload-mode-device', 'upload-device-pane'],
-      link: ['upload-mode-link', 'upload-link-pane']
-    };
-    Object.entries(modes).forEach(([key, ids]) => {
-      const button = $(ids[0]);
-      const pane = $(ids[1]);
-      const active = key === mode;
-      button.classList.toggle('active', active);
-      button.setAttribute('aria-pressed', String(active));
-      pane.hidden = !active;
-    });
-    $('upload-status').textContent = '';
-  }
-  $('upload-mode-drop').addEventListener('click', () => selectUploadMode('drop'));
-  $('upload-mode-device').addEventListener('click', () => selectUploadMode('device'));
-  $('upload-mode-link').addEventListener('click', () => selectUploadMode('link'));
   $('choose-files').addEventListener('click', () => $('media-files').click());
 
-  async function uploadFiles(files) {
-    if (!files || !files.length) return;
-    for (const file of files) {
-      const extension = file.name.split('.').pop().toLowerCase();
-      const inferred = ({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',jfif:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',avif:'image/avif',heic:'image/heic',heif:'image/heif',bmp:'image/bmp',tif:'image/tiff',tiff:'image/tiff',ico:'image/vnd.microsoft.icon',mp4:'video/mp4',m4v:'video/x-m4v',mov:'video/quicktime',webm:'video/webm',mkv:'video/x-matroska',avi:'video/x-msvideo',mpeg:'video/mpeg',mpg:'video/mpeg','3gp':'video/3gpp',ogv:'video/ogg',ts:'video/mp2t'})[extension] || '';
-      const mimeType = file.type && file.type !== 'application/octet-stream' ? file.type : inferred;
-      if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) { $('upload-status').textContent = 'Unsupported media type. Choose an image or video file.'; continue; }
-      $('upload-status').textContent = 'Preparing ' + file.name + '…';
-      try {
-        const started = await post('uploadStart', {token:state.token, filename:file.name, mime_type:mimeType, size:file.size, title:file.name.replace(/\.[^.]+$/, '')});
+  function renderSelectedFiles() {
+    const files = state.pendingGalleryFiles;
+    $('selected-upload').hidden = files.length === 0;
+    $('selected-upload-count').textContent = files.length + (files.length === 1 ? ' file selected' : ' files selected');
+    const list = $('selected-files-list');
+    list.replaceChildren();
+    files.forEach(file => {
+      const item = document.createElement('li');
+      const name = document.createElement('span');
+      name.textContent = file.name;
+      const size = document.createElement('small');
+      size.textContent = file.size < 1024 * 1024 ? Math.max(1, Math.round(file.size / 1024)) + ' KB' : (file.size / 1024 / 1024).toFixed(1) + ' MB';
+      item.append(name, size);
+      list.append(item);
+    });
+  }
+
+  function queueSelectedFiles(files) {
+    const chosen = Array.from(files || []).filter(file => file && file.name);
+    if (!chosen.length) return;
+    state.pendingGalleryFiles.push(...chosen);
+    $('file-upload-title').value = state.pendingGalleryFiles.length === 1 ? state.pendingGalleryFiles[0].name.replace(/\.[^.]+$/, '') : '';
+    renderSelectedFiles();
+    $('upload-status').textContent = 'Add a title and description if you like, then press Upload to gallery.';
+    $('media-files').value = '';
+  }
+
+  async function uploadSelectedFiles() {
+    if (!state.pendingGalleryFiles.length) {
+      $('upload-status').textContent = 'Choose or drop at least one photo or video first.';
+      return;
+    }
+    const button = $('upload-files-btn');
+    button.disabled = true;
+    $('choose-files').disabled = true;
+    const description = $('file-upload-caption').value.trim().slice(0, 500);
+    const customTitle = $('file-upload-title').value.trim().slice(0, 120);
+    try {
+      for (const file of [...state.pendingGalleryFiles]) {
+        const extension = file.name.split('.').pop().toLowerCase();
+        const inferred = ({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',jfif:'image/jpeg',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',avif:'image/avif',heic:'image/heic',heif:'image/heif',bmp:'image/bmp',tif:'image/tiff',tiff:'image/tiff',ico:'image/vnd.microsoft.icon',mp4:'video/mp4',m4v:'video/x-m4v',mov:'video/quicktime',webm:'video/webm',mkv:'video/x-matroska',avi:'video/x-msvideo',mpeg:'video/mpeg',mpg:'video/mpeg','3gp':'video/3gpp',ogv:'video/ogg',ts:'video/mp2t'})[extension] || '';
+        const mimeType = file.type && file.type !== 'application/octet-stream' ? file.type : inferred;
+        if (!mimeType.startsWith('image/') && !mimeType.startsWith('video/')) throw new Error(file.name + ': unsupported file type. Choose an image or video.');
+        $('upload-status').textContent = 'Preparing ' + file.name + '…';
+        const title = customTitle || file.name.replace(/\.[^.]+$/, '');
+        const started = await post('uploadStart', {token:state.token, filename:file.name, mime_type:mimeType, size:file.size, title, caption:description});
         const uploadId = started.upload_id;
         const chunkSize = 1024 * 1024;
         for (let offset = 0; offset < file.size; offset += chunkSize) {
           const end = Math.min(offset + chunkSize, file.size);
-          const blob = file.slice(offset, end);
-          const base64 = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Could not read file chunk.')); reader.readAsDataURL(blob); });
+          const chunk = file.slice(offset, end);
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result).split(',')[1]);
+            reader.onerror = () => reject(new Error('Could not read file chunk.'));
+            reader.readAsDataURL(chunk);
+          });
           $('upload-status').textContent = 'Uploading ' + file.name + ' · ' + Math.round(end / file.size * 100) + '%';
           await post('uploadChunk', {token:state.token, upload_id:uploadId, start:offset, end:end - 1, total:file.size, base64});
         }
-        $('upload-status').textContent = 'Uploaded ' + file.name;
-      } catch (error) { $('upload-status').textContent = error.message; break; }
+        state.pendingGalleryFiles = state.pendingGalleryFiles.filter(pending => pending !== file);
+        renderSelectedFiles();
+        $('upload-status').textContent = 'Uploaded ' + file.name + '.';
+      }
+      $('file-upload-title').value = '';
+      $('file-upload-caption').value = '';
+      $('upload-status').textContent = 'All selected media uploaded successfully.';
+    } catch (error) {
+      $('upload-status').textContent = error.message || 'Upload failed. Your remaining selection is kept so you can retry.';
+    } finally {
+      button.disabled = false;
+      $('choose-files').disabled = false;
+      $('media-files').value = '';
+      await loadGallery().catch(error => console.warn('Gallery refresh after upload failed.', error));
     }
-    $('media-files').value = ''; await loadGallery();
   }
-  $('media-files').addEventListener('change', event => uploadFiles(Array.from(event.target.files || [])));
+
+  $('upload-files-btn').addEventListener('click', uploadSelectedFiles);
+  $('clear-selected-files').addEventListener('click', () => {
+    state.pendingGalleryFiles = [];
+    $('file-upload-title').value = '';
+    $('file-upload-caption').value = '';
+    $('upload-status').textContent = '';
+    renderSelectedFiles();
+    $('media-files').value = '';
+  });
+  $('media-files').addEventListener('change', event => queueSelectedFiles(Array.from(event.target.files || [])));
   const drop = $('drop-zone');
   ['dragenter','dragover'].forEach(type => drop.addEventListener(type, event => { event.preventDefault(); drop.classList.add('dragover'); }));
   ['dragleave','drop'].forEach(type => drop.addEventListener(type, event => { event.preventDefault(); drop.classList.remove('dragover'); }));
   drop.addEventListener('drop', event => {
     event.preventDefault();
     drop.classList.remove('dragover');
-    uploadFiles(Array.from(event.dataTransfer.files || []));
+    queueSelectedFiles(Array.from(event.dataTransfer.files || []));
+  });
+  $('toggle-link-form').addEventListener('click', () => {
+    const pane = $('upload-link-pane');
+    pane.hidden = !pane.hidden;
+    $('toggle-link-form').setAttribute('aria-expanded', String(!pane.hidden));
+    $('toggle-link-form').textContent = pane.hidden ? 'Or add a video using a YouTube link' : 'Hide YouTube link uploader';
+    if (!pane.hidden) $('youtube-url').focus();
   });
   $('save-youtube').addEventListener('click', async () => {
     const url = $('youtube-url').value.trim(); if (!url) { $('upload-status').textContent = 'Paste a YouTube link first.'; return; }
