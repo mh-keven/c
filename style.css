@@ -837,3 +837,34 @@ body { min-height:100%; background:radial-gradient(ellipse at 12% -10%,rgba(30,1
   .selected-upload-actions .btn-primary { width: 100%; min-width: 0; }
   .voice audio { width: min(190px, 58vw); }
 }
+
+
+/* Keep uploader fields readable regardless of the active color theme. */
+#selected-upload .field input,
+#selected-upload .field textarea,
+#upload-link-pane input,
+#upload-link-pane textarea,
+#upload-link-pane select {
+  color: #171923 !important;
+  caret-color: #171923;
+  background-color: #fff;
+}
+#selected-upload .field input::placeholder,
+#selected-upload .field textarea::placeholder,
+#upload-link-pane input::placeholder,
+#upload-link-pane textarea::placeholder {
+  color: #697386 !important;
+  opacity: 1;
+}
+.remove-selected-file {
+  flex: 0 0 auto;
+  border: 1px solid #e2a6ad;
+  border-radius: 8px;
+  padding: 5px 8px;
+  background: #fff1f2;
+  color: #9f2435;
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
