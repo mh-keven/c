@@ -442,6 +442,39 @@ function startResumableUpload_(user, payload) {
   return {ok:true, upload_id:uploadId, chunk_size:1024*1024};
 }
 
+// Gallery media is owned by the Apps Script deployment account. The website's
+// custom logins do not need Google accounts or Drive invitations. Only the individual
+// gallery file is set to link-viewable (not the whole Drive or parent folder), so the
+// existing direct Drive URLs can render on any device without a Google sign-in.
+function enableGalleryFileLinkView_(fileId) {
+  const id = String(fileId || '').trim();
+  if (!id) throw new Error('Missing Google Drive file ID.');
+  const file = DriveApp.getFileById(id);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return file;
+}
+
+// Run this function manually once in the Apps Script editor to repair gallery files
+// uploaded before link viewing was enabled. It never changes the Drive folder itself.
+function enableExistingGalleryLinksForMigration() {
+  const rows = rowsAsObjects_('Gallery');
+  let updated = 0, skipped = 0;
+  const failures = [];
+  rows.forEach(row => {
+    const id = String(row.drive_file_id || '').trim();
+    if (String(row.source || '') !== 'drive' || !id) { skipped++; return; }
+    try {
+      enableGalleryFileLinkView_(id);
+      updated++;
+    } catch (error) {
+      failures.push({file_id:id, error:safeError_(error)});
+    }
+  });
+  const summary = {ok:failures.length === 0, updated:updated, skipped:skipped, failed:failures.length, failures:failures.slice(0,10)};
+  Logger.log('Gallery link-access migration: ' + JSON.stringify(summary));
+  return summary;
+}
+
 function uploadChunk_(user, payload) {
   const uploadId = String(payload.upload_id || '');
   const key = 'anonyms_upload_' + uploadId;
@@ -480,8 +513,14 @@ function uploadChunk_(user, payload) {
       throw new Error('Voice note reached Drive but could not be saved to Supabase. ' + safeError_(error));
     }
   }
-  // Do not block uploads by trying to share with custom usernames as if they were emails.
-  // Files stay in the private owner-controlled Drive folder.
+  // No Google login or email invitation is needed for the website user. Make just this
+  // gallery media file viewable by link so its direct URL works on other devices.
+  try {
+    enableGalleryFileLinkView_(file.id);
+  } catch (error) {
+    try { DriveApp.getFileById(file.id).setTrashed(true); } catch (_) {}
+    throw new Error('Google Drive could not enable link viewing for this gallery file. Check that link sharing is allowed for your Google account, then retry. ' + safeError_(error));
+  }
   const mediaType = meta.mime_type.startsWith('image/') ? 'image' : 'video';
   withLock_(() => sheet_('Gallery').appendRow([id,user,meta.title,meta.caption || '',mediaType,'drive',file.id,'',meta.mime_type,now]));
   return {ok:true,complete:true,item:{id:id,uploader:user,title:meta.title,caption:meta.caption || '',media_type:mediaType,source:'drive',drive_file_id:file.id,mime_type:meta.mime_type,media_url:'https://drive.google.com/uc?export=view&id='+file.id,preview_url:'https://drive.google.com/file/d/'+file.id+'/preview',created_at:now}};
@@ -509,8 +548,14 @@ function uploadMedia_(user, payload) {
   const blob = Utilities.newBlob(bytes, mime, name);
   const folder = DriveApp.getFolderById(PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY));
   const file = folder.createFile(blob);
-  // Keep files private in the Drive folder owned/accessed by the Apps Script deployment.
-  // Website usernames do not map to Google Drive viewer permissions.
+  // Store uploads under the Apps Script owner's Drive folder. Users do not need Google
+  // accounts; link-view only this media file so it can render on all their devices.
+  try {
+    enableGalleryFileLinkView_(file.getId());
+  } catch (error) {
+    try { file.setTrashed(true); } catch (_) {}
+    throw new Error('Google Drive could not enable link viewing for this gallery file. Check that link sharing is allowed for your Google account, then retry. ' + safeError_(error));
+  }
   const now = new Date().toISOString();
   const id = Utilities.getUuid();
   withLock_(() => sheet_('Gallery').appendRow([id, user, String(payload.title || name).slice(0, 120), String(payload.caption || '').slice(0, 500), type, 'drive', file.getId(), '', mime, now]));
