@@ -4,7 +4,7 @@
   // Paste the deployed Apps Script Web App URL ending in /exec here.
   const API_URL = 'https://script.google.com/macros/s/AKfycbyW_06rlpggyk054n43VbwYhgJarWsoV7CRR8iRm43Lvi_ghUKzSJeOJoM7t5pF6KcsAQ/exec';
   const $ = id => document.getElementById(id);
-  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0 , pendingGalleryFiles: [], localVoiceUrls: [] };
+  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0, pendingGalleryFiles: [], localVoiceUrls: [] };
   const EMOJI_GROUPS = {
     smileys: [
       '😀','😃','😄','😁','😆','😅','😂','🤣','🥲','☺️','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🫣','🤭','🫢','🫡','🤫','🫠','🤥','😶','🫥','😐','🫤','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','😵‍💫','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','💀','☠️','🤡','👻','👽','🤖'
@@ -840,7 +840,7 @@
       const meta = document.createElement('small'); meta.textContent = (item.uploader || '') + ' · ' + new Date(item.created_at).toLocaleDateString();
       const actions = document.createElement('div'); actions.className = 'gallery-social';
       const likeBtn = document.createElement('button'); likeBtn.type = 'button'; likeBtn.className = 'like-button' + (item.liked_by_me ? ' liked' : '');
-      likeBtn.textContent = (item.liked_by_me ? '♥' : '♡') + ' ' + ((item.likes || []).length);
+      likeBtn.textContent = (item.liked_by_me ? '♥ Liked · ' : '♡ Like · ') + ((item.likes || []).length);
       likeBtn.setAttribute('aria-label', 'Like this item');
       likeBtn.addEventListener('click', async () => {
         likeBtn.disabled = true;
@@ -852,7 +852,7 @@
       whoBtn.textContent = (item.likes || []).length ? 'Liked by ' + item.likes.join(', ') : 'No likes yet';
       whoBtn.addEventListener('click', () => { const names = (item.likes || []).join(', '); alert(names ? 'Liked by: ' + names : 'No one has liked this yet.'); });
       const commentBtn = document.createElement('button'); commentBtn.type = 'button'; commentBtn.className = 'comment-toggle';
-      commentBtn.textContent = 'Comments (' + (item.comment_count || 0) + ')';
+      commentBtn.textContent = '💬 Comments (' + (item.comment_count || 0) + ')';
       const commentArea = document.createElement('div'); commentArea.className = 'comment-area'; commentArea.hidden = true;
       const commentList = document.createElement('div'); commentList.className = 'comment-list';
       const commentForm = document.createElement('form'); commentForm.className = 'comment-form';
