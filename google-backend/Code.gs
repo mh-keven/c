@@ -711,8 +711,19 @@ function normalizeUser_(value) {
   return name === 'keven' ? 'Keven' : name === 'zubii' ? 'Zubii' : '';
 }
 function youtubeId_(url) {
-  const m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-  return m ? m[1] : '';
+  let parsed;
+  try { parsed = new URL(String(url || '').trim()); } catch (_) { return ''; }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  const youtubeHosts = ['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com', 'youtu.be'];
+  if (youtubeHosts.indexOf(host) < 0) return '';
+  let id = '';
+  if (host === 'youtu.be') id = parsed.pathname.split('/').filter(Boolean)[0] || '';
+  else if (parsed.pathname === '/watch') id = parsed.searchParams.get('v') || '';
+  else {
+    const match = parsed.pathname.match(/^\/(?:embed|shorts|live)\/([A-Za-z0-9_-]{11})(?:\/|$)/);
+    id = match ? match[1] : '';
+  }
+  return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : '';
 }
 function sheet_(name) {
   const id = PropertiesService.getScriptProperties().getProperty(CFG.SHEET_ID_PROPERTY);
