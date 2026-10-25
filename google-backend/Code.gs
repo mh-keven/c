@@ -411,24 +411,38 @@ function inferMediaMime_(filename, suppliedMime) {
   return known[ext] || mime;
 }
 
-function grantPrivateViewers_(fileId) {
+function configuredMediaViewerAccounts_() {
   const props = PropertiesService.getScriptProperties();
-  const emails = [props.getProperty('ANONYMS_KEVEN_EMAIL'), props.getProperty('ANONYMS_ZUBII_EMAIL')]
-    .map(value => String(value || '').trim()).filter(Boolean);
-  if (emails.length !== 2) throw new Error('Configure ANONYMS_KEVEN_EMAIL and ANONYMS_ZUBII_EMAIL before uploading media.');
-  emails.forEach(email => {
+  const accounts = [
+    {property:'ANONYMS_KEVEN_EMAIL', email:String(props.getProperty('ANONYMS_KEVEN_EMAIL') || '').trim()},
+    {property:'ANONYMS_ZUBII_EMAIL', email:String(props.getProperty('ANONYMS_ZUBII_EMAIL') || '').trim()}
+  ];
+  for (const account of accounts) {
+    if (!account.email) throw new Error('Missing Script Property ' + account.property + '. Set it to the full Google account email address before uploading gallery media.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(account.email)) throw new Error('Script Property ' + account.property + ' is not a valid email address. Enter the full Google account email, not a username or display name.');
+  }
+  if (accounts[0].email.toLowerCase() === accounts[1].email.toLowerCase()) throw new Error('ANONYMS_KEVEN_EMAIL and ANONYMS_ZUBII_EMAIL must be two different Google account email addresses.');
+  return accounts;
+}
+
+function grantPrivateViewers_(fileId) {
+  const accounts = configuredMediaViewerAccounts_();
+  accounts.forEach(account => {
     const url = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '/permissions?supportsAllDrives=true&sendNotificationEmail=false';
     const response = UrlFetchApp.fetch(url, {
       method:'post', contentType:'application/json; charset=UTF-8',
       headers:{Authorization:'Bearer ' + ScriptApp.getOAuthToken()},
-      payload:JSON.stringify({type:'user', role:'reader', emailAddress:email}),
+      payload:JSON.stringify({type:'user', role:'reader', emailAddress:account.email}),
       muteHttpExceptions:true
     });
     const code = response.getResponseCode();
     if (code < 200 || code >= 300) {
       let detail = '';
       try { detail = JSON.parse(response.getContentText() || '{}').error.message || ''; } catch (_) {}
-      throw new Error('Could not grant private media access to a configured account (' + code + '). ' + detail.slice(0,140));
+      if (code === 400 && /emailAddress is invalid|not applicable for the given permission type/i.test(detail)) {
+        throw new Error('Google Drive rejected Script Property ' + account.property + '. In Apps Script → Project Settings → Script Properties, replace it with the actual full Google account email that should view gallery media, then retry. (' + detail.slice(0,140) + ')');
+      }
+      throw new Error('Could not grant gallery access for Script Property ' + account.property + ' (' + code + '). Check that the email is a Google account and that the deployment owner is allowed to share Drive files. ' + detail.slice(0,140));
     }
   });
 }
@@ -442,6 +456,7 @@ function startResumableUpload_(user, payload) {
   const isVoice = purpose === 'voice' && mime.startsWith('audio/');
   const size = Number(payload.size);
   if ((!type && !isVoice) || !Number.isFinite(size) || size <= 0) throw new Error('Choose a supported photo/video file or record a voice note.');
+  configuredMediaViewerAccounts_();
   const folderId = PropertiesService.getScriptProperties().getProperty(CFG.DRIVE_FOLDER_PROPERTY);
   if (!folderId) throw new Error('Run setupAnonyms() first.');
   const response = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size', {
@@ -455,7 +470,7 @@ function startResumableUpload_(user, payload) {
   const sessionUrl = headers.Location || headers.location;
   if (!sessionUrl) throw new Error('Google Drive did not return an upload session.');
   const uploadId = Utilities.getUuid(), cache = CacheService.getScriptCache();
-  const meta = {user:user, purpose:isVoice?'voice':'gallery', filename:name, mime_type:mime, size:size, title:String(payload.title || name).slice(0,120), duration_seconds:Math.max(1,Number(payload.duration_seconds)||1), session_url:String(sessionUrl), created_at:new Date().toISOString()};
+  const meta = {user:user, purpose:isVoice?'voice':'gallery', filename:name, mime_type:mime, size:size, title:String(payload.title || name.replace(/\.[^.]+$/, '')).trim().slice(0,120), caption:String(payload.caption || '').trim().slice(0,500), duration_seconds:Math.max(1,Number(payload.duration_seconds)||1), session_url:String(sessionUrl), created_at:new Date().toISOString()};
   cache.put('anonyms_upload_' + uploadId, JSON.stringify(meta), 21600);
   return {ok:true, upload_id:uploadId, chunk_size:1024*1024};
 }
@@ -505,8 +520,8 @@ function uploadChunk_(user, payload) {
     throw error;
   }
   const mediaType = meta.mime_type.startsWith('image/') ? 'image' : 'video';
-  withLock_(() => sheet_('Gallery').appendRow([id,user,meta.title,'',mediaType,'drive',file.id,'',meta.mime_type,now]));
-  return {ok:true,complete:true,item:{id:id,uploader:user,title:meta.title,caption:'',media_type:mediaType,source:'drive',drive_file_id:file.id,mime_type:meta.mime_type,media_url:'https://drive.google.com/uc?export=view&id='+file.id,preview_url:'https://drive.google.com/file/d/'+file.id+'/preview',created_at:now}};
+  withLock_(() => sheet_('Gallery').appendRow([id,user,meta.title,meta.caption || '',mediaType,'drive',file.id,'',meta.mime_type,now]));
+  return {ok:true,complete:true,item:{id:id,uploader:user,title:meta.title,caption:meta.caption || '',media_type:mediaType,source:'drive',drive_file_id:file.id,mime_type:meta.mime_type,media_url:'https://drive.google.com/uc?export=view&id='+file.id,preview_url:'https://drive.google.com/file/d/'+file.id+'/preview',created_at:now}};
 }
 
 function sendVoiceNote_(user, payload) {
