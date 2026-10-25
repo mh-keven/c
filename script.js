@@ -897,6 +897,8 @@
       }
       async function fetchComments() {
         const result = await post('galleryComments', {token:state.token, gallery_id:item.id});
+        item.comment_count = (result.comments || []).length;
+        commentBtn.textContent = '💬 Comments (' + item.comment_count + ')';
         commentList.replaceChildren();
         (result.comments || []).forEach(comment => appendComment(comment, false));
         if (!result.comments?.length) { const empty = document.createElement('p'); empty.className = 'comment-empty'; empty.textContent = 'No comments yet.'; commentList.append(empty); }
