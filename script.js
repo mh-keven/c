@@ -855,7 +855,16 @@
         const cover = document.createElement('div'); cover.className = 'video-placeholder'; cover.textContent = '▶'; preview.append(cover);
         const badge = document.createElement('span'); badge.className = 'media-type-badge'; badge.textContent = '▶ VIDEO'; preview.append(badge);
       }
-      preview.addEventListener('click', () => openMedia(item));
+      preview.addEventListener('click', () => {
+        if (item.media_type === 'image' && item.drive_file_id) {
+          // The user confirmed this exact Google Drive URL opens the original image.
+          // Open it directly instead of relying on Drive's embedded-image behavior.
+          const originalImageUrl = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(item.drive_file_id);
+          window.open(originalImageUrl, '_blank', 'noopener,noreferrer');
+          return;
+        }
+        openMedia(item);
+      });
       const details = document.createElement('div'); details.className = 'gallery-card-details';
       const title = document.createElement('h3'); title.textContent = item.title || (item.media_type === 'image' ? 'Photo' : 'Video');
       const caption = document.createElement('p'); caption.textContent = item.caption || '';
@@ -974,15 +983,28 @@
       frame.allowFullscreen = true;
       stage.append(frame);
     } else if (item.media_type === 'image') {
-      const img = document.createElement('img');
       const driveId = item.drive_file_id || '';
-      img.src = item.media_url || ('https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1600');
+      const directUrl = driveId
+        ? 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId)
+        : (item.media_url || '');
+      const img = document.createElement('img');
+      img.alt = item.title || 'Shared image';
+      img.decoding = 'async';
+      img.src = directUrl || item.media_url || '';
       img.addEventListener('error', () => {
-        if (img.dataset.fallbackTried) return;
-        img.dataset.fallbackTried = '1';
-        img.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId);
-      });
-      img.alt = item.title || 'Shared image'; stage.append(img);
+        img.remove();
+        const fallback = document.createElement('div');
+        fallback.className = 'gallery-image-unavailable';
+        fallback.append(document.createTextNode('Unable to embed this photo here. '));
+        const link = document.createElement('a');
+        link.href = directUrl || item.media_url || '#';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Open full image';
+        fallback.append(link);
+        stage.append(fallback);
+      }, { once: true });
+      stage.append(img);
     } else {
       const frame = document.createElement('iframe'); frame.src = item.preview_url || ('https://drive.google.com/file/d/' + encodeURIComponent(item.drive_file_id) + '/preview'); frame.title = item.title || 'Shared video'; frame.allow = 'autoplay'; frame.allowFullscreen = true; stage.append(frame);
     }
