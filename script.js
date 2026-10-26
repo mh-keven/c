@@ -763,21 +763,39 @@
       const img = document.createElement('img');
       img.alt = item.title || 'Shared image';
       img.decoding = 'async';
-      img.src = directUrl || item.media_url || '';
-      img.addEventListener('error', () => {
+      // Drive's thumbnail endpoint is more reliable for embedding than uc?export=view.
+      const imageCandidates = driveId ? [
+        'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w2000',
+        'https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId),
+        'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId)
+      ] : [item.media_url || ''];
+      let candidateIndex = 0;
+      const showDrivePreview = () => {
         img.remove();
-        const fallback = document.createElement('div');
-        fallback.className = 'gallery-image-unavailable';
-        fallback.append(document.createTextNode('Unable to embed this photo here. '));
-        const link = document.createElement('a');
-        link.href = directUrl || item.media_url || '#';
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.textContent = 'Open full image';
-        fallback.append(link);
-        stage.append(fallback);
-      }, { once: true });
+        // If Drive refuses to serve the raw image, its preview page can still display
+        // a shared file inside our modal instead of forcing a new tab.
+        stage.replaceChildren();
+        const frame = document.createElement('iframe');
+        frame.src = driveId
+          ? 'https://drive.google.com/file/d/' + encodeURIComponent(driveId) + '/preview'
+          : (item.preview_url || directUrl || item.media_url || '');
+        frame.title = item.title || 'Shared photo';
+        frame.allow = 'autoplay';
+        frame.allowFullscreen = true;
+        frame.referrerPolicy = 'strict-origin-when-cross-origin';
+        stage.append(frame);
+      };
+      img.addEventListener('error', () => {
+        candidateIndex += 1;
+        if (candidateIndex < imageCandidates.length && imageCandidates[candidateIndex]) {
+          img.src = imageCandidates[candidateIndex];
+        } else {
+          showDrivePreview();
+        }
+      });
       stage.append(img);
+      if (imageCandidates[0]) img.src = imageCandidates[0];
+      else showDrivePreview();
     } else {
       const frame = document.createElement('iframe'); frame.src = item.preview_url || ('https://drive.google.com/file/d/' + encodeURIComponent(item.drive_file_id) + '/preview'); frame.title = item.title || 'Shared video'; frame.allow = 'autoplay'; frame.allowFullscreen = true; stage.append(frame);
     }
