@@ -421,7 +421,12 @@
           renderMessages();
           try {
             if (hasDirectSupabaseConfig()) {
-              await fastSupabaseRpc('anonyms_fast_delete', {p_token_hash: await sessionTokenHash(), p_message_id: deletedMessage.id});
+              try {
+                await fastSupabaseRpc('anonyms_fast_delete', {p_token_hash: await sessionTokenHash(), p_message_id: deletedMessage.id});
+              } catch (directError) {
+                // Keep deletion working even before the optional direct-chat SQL migration is applied.
+                await post('deleteMessage', {token:state.token, message_id:deletedMessage.id});
+              }
             } else {
               await post('deleteMessage', {token:state.token, message_id:deletedMessage.id});
             }
