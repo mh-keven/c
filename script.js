@@ -422,7 +422,10 @@
           try {
             if (hasDirectSupabaseConfig()) {
               try {
-                await fastSupabaseRpc('anonyms_fast_delete', {p_token_hash: await sessionTokenHash(), p_message_id: deletedMessage.id});
+                const deleted = await fastSupabaseRpc('anonyms_fast_delete', {p_token_hash: await sessionTokenHash(), p_message_id: deletedMessage.id});
+                // PostgreSQL returns false when no row matched the session/user/message.
+                // Treat that as a failed delete so the authenticated backend fallback runs.
+                if (deleted !== true) throw new Error('Supabase did not confirm message deletion.');
               } catch (directError) {
                 // Keep deletion working even before the optional direct-chat SQL migration is applied.
                 await post('deleteMessage', {token:state.token, message_id:deletedMessage.id});
