@@ -6,7 +6,7 @@
   <title>Anonyms</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;1,9..144,500&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
   <main id="login-screen" class="screen login"><div class="login-card">
@@ -24,20 +24,6 @@
     <div id="banner" class="banner" hidden role="status"></div>
     <section id="chat-view" class="view chat-view">
       <div class="chat-workspace">
-        <aside id="video-panel" class="video-panel" aria-label="Live video">
-          <p class="video-panel-kicker">LIVE VIDEO</p>
-          <h3 id="video-panel-title">See the face</h3>
-          <p id="video-call-status" class="video-call-status" role="status">Check whether the other person is online.</p>
-          <button id="request-video-btn" class="video-request-btn" type="button">Start video</button>
-          <div id="incoming-call-actions" class="incoming-call-actions" hidden>
-            <button id="accept-video-btn" class="video-request-btn" type="button">Accept</button>
-            <button id="decline-video-btn" class="video-decline-btn" type="button">Decline</button>
-          </div>
-          <div id="remote-video-wrap" class="remote-video-wrap" hidden>
-            <video id="remote-video" autoplay playsinline></video>
-          </div>
-          <button id="end-video-btn" class="video-end-btn" type="button" hidden>Finish</button>
-        </aside>
         <div class="chat-main">
       <div id="messages" class="messages" aria-live="polite" aria-label="Conversation"><button id="load-earlier" class="load-earlier" type="button" hidden>Load earlier messages</button><div id="message-list"></div><p id="empty-state" class="empty-state" hidden>No messages yet. Say hi 😊</p></div>
       <div class="composer-wrap"><form id="composer" class="composer" autocomplete="off"><button id="emoji-btn" class="icon-btn" type="button" aria-label="Open emoji picker">😊</button><textarea id="message-input" rows="1" maxlength="2000" placeholder="Type a message…" aria-label="Message"></textarea><button id="voice-note-btn" class="icon-btn voice-note-btn" type="button" aria-label="Record voice note" title="Record voice note">🎙️</button><button id="send-btn" class="send-btn" type="submit" aria-label="Send message" hidden>➤</button></form><div id="emoji-panel" class="emoji-panel" hidden></div></div>
@@ -75,5 +61,5 @@
     </section>
   </main>
   <div id="media-modal" class="media-modal" hidden role="dialog" aria-modal="true" aria-label="View media"><button id="close-media" class="modal-close" type="button" aria-label="Close">×</button><div id="media-stage" class="media-stage"></div><div id="media-caption" class="media-caption"></div></div>
-  <script src="script.js?v=15"></script>
+  <script src="script.js?v=16"></script>
 </body></html>
