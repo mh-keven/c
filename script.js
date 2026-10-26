@@ -794,9 +794,21 @@
     });
   }
   function openMedia(item) {
-    const stage = $('media-stage'); stage.replaceChildren(); $('media-caption').textContent = (item.title || '') + (item.caption ? ' — ' + item.caption : '');
+    // Photos are opened directly in Google Drive in a new tab. The embedded
+    // Drive image endpoints can fail for shared files, so don't trap users in the modal.
+    if (item.media_type === 'image') {
+      const driveId = item.drive_file_id || '';
+      const imageUrl = driveId
+        ? 'https://drive.google.com/file/d/' + encodeURIComponent(driveId) + '/view'
+        : (item.media_url || item.preview_url || '');
+      if (imageUrl) window.open(imageUrl, '_blank', 'noopener,noreferrer');
+      else banner('This photo does not have an openable link.');
+      return;
+    }
+    const stage = $('media-stage');
+    stage.replaceChildren();
+    $('media-caption').textContent = (item.title || '') + (item.caption ? ' — ' + item.caption : '');
     if (item.source === 'youtube') {
-      // Embed the video in the gallery's own viewer; do not navigate the visitor to YouTube.
       const frame = document.createElement('iframe');
       frame.src = 'https://www.youtube.com/embed/' + encodeURIComponent(item.youtube_id) + '?autoplay=1&playsinline=1&rel=0';
       frame.title = item.title || 'YouTube video';
@@ -804,22 +816,14 @@
       frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
       frame.allowFullscreen = true;
       stage.append(frame);
-    } else if (item.media_type === 'image') {
-      const driveId = item.drive_file_id || '';
-      const imageUrl = driveId
-        ? 'https://drive.google.com/file/d/' + encodeURIComponent(driveId) + '/view'
-        : (item.media_url || item.preview_url || '');
-      if (imageUrl) window.open(imageUrl, '_blank', 'noopener,noreferrer');
-      closeMedia();
     } else {
-          showDrivePreview();
-        }
-      });
-      stage.append(img);
-      if (imageCandidates[0]) img.src = imageCandidates[0];
-      else showDrivePreview();
-    } else {
-      const frame = document.createElement('iframe'); frame.src = item.preview_url || ('https://drive.google.com/file/d/' + encodeURIComponent(item.drive_file_id) + '/preview'); frame.title = item.title || 'Shared video'; frame.allow = 'autoplay'; frame.allowFullscreen = true; stage.append(frame);
+      const frame = document.createElement('iframe');
+      frame.src = item.preview_url || ('https://drive.google.com/file/d/' + encodeURIComponent(item.drive_file_id) + '/preview');
+      frame.title = item.title || 'Shared video';
+      frame.allow = 'autoplay; encrypted-media; picture-in-picture';
+      frame.allowFullscreen = true;
+      frame.referrerPolicy = 'strict-origin-when-cross-origin';
+      stage.append(frame);
     }
     $('media-modal').hidden = false;
   }
