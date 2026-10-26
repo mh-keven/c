@@ -637,16 +637,7 @@
         const cover = document.createElement('div'); cover.className = 'video-placeholder'; cover.textContent = '▶'; preview.append(cover);
         const badge = document.createElement('span'); badge.className = 'media-type-badge'; badge.textContent = '▶ VIDEO'; preview.append(badge);
       }
-      preview.addEventListener('click', () => {
-        if (item.media_type === 'image' && item.drive_file_id) {
-          // The user confirmed this exact Google Drive URL opens the original image.
-          // Open it directly instead of relying on Drive's embedded-image behavior.
-          const originalImageUrl = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(item.drive_file_id);
-          window.open(originalImageUrl, '_blank', 'noopener,noreferrer');
-          return;
-        }
-        openMedia(item);
-      });
+      preview.addEventListener('click', () => openMedia(item));
       const details = document.createElement('div'); details.className = 'gallery-card-details';
       const title = document.createElement('h3'); title.textContent = item.title || (item.media_type === 'image' ? 'Photo' : 'Video');
       const caption = document.createElement('p'); caption.textContent = item.caption || '';
