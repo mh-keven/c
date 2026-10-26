@@ -412,8 +412,8 @@
         const deleteBtn = document.createElement('button');
         deleteBtn.type = 'button';
         deleteBtn.className = 'delete-message-btn';
-        deleteBtn.textContent = '✕ Delete';
-        deleteBtn.title = 'Delete this message immediately';
+        deleteBtn.textContent = '🗑';
+        deleteBtn.title = 'Delete message';
         deleteBtn.setAttribute('aria-label', 'Delete your message');
         deleteBtn.addEventListener('click', async () => {
           const deletedMessage = m;
@@ -438,7 +438,7 @@
             banner('Could not delete message: ' + error.message + '. If fast-chat SQL was just updated, run the latest migration in Supabase.');
           }
         });
-        bubble.append(deleteBtn);
+        row.append(deleteBtn);
       }
       row.append(bubble); list.append(row); previous = m;
     });
