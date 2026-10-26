@@ -911,3 +911,14 @@ body { min-height:100%; background:radial-gradient(ellipse at 12% -10%,rgba(30,1
   .media-stage img { width: 100%; height: 100%; max-height: 56vh; object-fit: contain; }
   #media-caption { max-width: 100%; padding: 0 4px; font-size: .85rem; overflow-wrap: anywhere; }
 }
+
+
+/* Preserve each video's own native aspect ratio; only shrink the controls/overlay UI on phones. */
+@media (max-width: 620px) {
+  .media-modal { justify-content: center; align-items: center; padding: max(44px, env(safe-area-inset-top)) 8px max(10px, env(safe-area-inset-bottom)); gap: 6px; }
+  .media-stage { width: 100%; height: auto; max-height: 76vh; aspect-ratio: auto; flex: 0 1 auto; }
+  .media-stage iframe { display: block; width: 100% !important; height: auto !important; max-height: 76vh; aspect-ratio: 16 / 9; }
+  .media-stage img { width: 100%; height: auto; max-height: 76vh; object-fit: contain; }
+  .media-caption { font-size: .78rem; line-height: 1.25; }
+  .modal-close { width: 30px; height: 30px; right: 10px; top: max(8px, env(safe-area-inset-top)); font-size: 1.25rem; line-height: 1; }
+}
