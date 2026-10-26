@@ -406,7 +406,29 @@
         bubble.append(text);
       }
       const time = document.createElement('time'); time.className = 'time'; time.dateTime = m.created_at; time.textContent = timeLabel(m.created_at);
-      bubble.append(time); row.append(bubble); list.append(row); previous = m;
+      bubble.append(time);
+      if (m.username === state.user && !m.pending && m.id) {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'delete-message-btn';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.setAttribute('aria-label', 'Delete your message');
+        deleteBtn.addEventListener('click', async () => {
+          if (!window.confirm('Delete this message?')) return;
+          deleteBtn.disabled = true;
+          try {
+            await post('deleteMessage', {token:state.token, message_id:m.id});
+            state.messages = state.messages.filter(message => String(message.id) !== String(m.id));
+            renderMessages();
+            banner('');
+          } catch (error) {
+            deleteBtn.disabled = false;
+            banner('Could not delete this message. The backend must support the deleteMessage action: ' + error.message);
+          }
+        });
+        bubble.append(deleteBtn);
+      }
+      row.append(bubble); list.append(row); previous = m;
     });
     $('empty-state').hidden = state.messages.length > 0;
     $('load-earlier').hidden = state.messages.length < 200;
@@ -653,7 +675,18 @@
         const cover = document.createElement('div'); cover.className = 'video-placeholder'; cover.textContent = '▶'; preview.append(cover);
         const badge = document.createElement('span'); badge.className = 'media-type-badge'; badge.textContent = '▶ VIDEO'; preview.append(badge);
       }
-      preview.addEventListener('click', () => openMedia(item));
+      preview.addEventListener('click', () => {
+        if (item.media_type === 'image') {
+          const driveId = item.drive_file_id || '';
+          const imageUrl = driveId
+            ? 'https://drive.google.com/file/d/' + encodeURIComponent(driveId) + '/view'
+            : (item.media_url || item.preview_url || '');
+          if (imageUrl) window.open(imageUrl, '_blank', 'noopener,noreferrer');
+          else banner('This photo does not have an openable link.');
+          return;
+        }
+        openMedia(item);
+      });
       const details = document.createElement('div'); details.className = 'gallery-card-details';
       const title = document.createElement('h3'); title.textContent = item.title || (item.media_type === 'image' ? 'Photo' : 'Video');
       const caption = document.createElement('p'); caption.textContent = item.caption || '';
@@ -773,39 +806,12 @@
       stage.append(frame);
     } else if (item.media_type === 'image') {
       const driveId = item.drive_file_id || '';
-      const directUrl = driveId
-        ? 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId)
-        : (item.media_url || '');
-      const img = document.createElement('img');
-      img.alt = item.title || 'Shared image';
-      img.decoding = 'async';
-      // Drive's thumbnail endpoint is more reliable for embedding than uc?export=view.
-      const imageCandidates = driveId ? [
-        'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w2000',
-        'https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId),
-        'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId)
-      ] : [item.media_url || ''];
-      let candidateIndex = 0;
-      const showDrivePreview = () => {
-        img.remove();
-        // If Drive refuses to serve the raw image, its preview page can still display
-        // a shared file inside our modal instead of forcing a new tab.
-        stage.replaceChildren();
-        const frame = document.createElement('iframe');
-        frame.src = driveId
-          ? 'https://drive.google.com/file/d/' + encodeURIComponent(driveId) + '/preview'
-          : (item.preview_url || directUrl || item.media_url || '');
-        frame.title = item.title || 'Shared photo';
-        frame.allow = 'autoplay';
-        frame.allowFullscreen = true;
-        frame.referrerPolicy = 'strict-origin-when-cross-origin';
-        stage.append(frame);
-      };
-      img.addEventListener('error', () => {
-        candidateIndex += 1;
-        if (candidateIndex < imageCandidates.length && imageCandidates[candidateIndex]) {
-          img.src = imageCandidates[candidateIndex];
-        } else {
+      const imageUrl = driveId
+        ? 'https://drive.google.com/file/d/' + encodeURIComponent(driveId) + '/view'
+        : (item.media_url || item.preview_url || '');
+      if (imageUrl) window.open(imageUrl, '_blank', 'noopener,noreferrer');
+      closeMedia();
+    } else {
           showDrivePreview();
         }
       });
