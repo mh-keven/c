@@ -1048,3 +1048,35 @@ body { overflow-x:hidden; }
 .delete-message-btn:hover { background: #a91f1f; border-color: #a91f1f; }
 .delete-message-btn:focus-visible { outline: 3px solid rgba(198,40,40,.28); outline-offset: 2px; }
 .delete-message-btn:disabled { opacity: .5; cursor: wait; }
+
+
+/* Compact trash icon placed outside, to the left of the user's message bubble. */
+.delete-message-btn {
+  align-self: center;
+  flex: 0 0 25px;
+  width: 25px;
+  min-width: 25px;
+  min-height: 25px;
+  height: 25px;
+  margin: 0 7px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #d64b58;
+  font-size: 15px;
+  line-height: 1;
+  box-shadow: none;
+  opacity: .75;
+  cursor: pointer;
+}
+.delete-message-btn:hover {
+  background: rgba(214, 75, 88, .12);
+  color: #b42332;
+  opacity: 1;
+}
+.delete-message-btn:focus-visible { outline: 2px solid rgba(214, 75, 88, .45); outline-offset: 1px; }
+.delete-message-btn:disabled { opacity: .4; cursor: wait; }
+@media (max-width: 620px) {
+  .delete-message-btn { flex-basis: 23px; width: 23px; min-width: 23px; height: 23px; min-height: 23px; margin-right: 5px; font-size: 14px; }
+}
