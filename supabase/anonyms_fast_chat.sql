@@ -78,6 +78,26 @@ begin
 end;
 $$;
 
+create or replace function public.anonyms_fast_delete(
+  p_token_hash text,
+  p_message_id uuid
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $
+declare v_username text;
+begin
+  select s.username into v_username from public.anonyms_sessions s
+  where s.token_hash = p_token_hash and s.revoked_at is null and s.expires_at > now()
+  limit 1;
+  if v_username is null then raise exception 'Session expired. Please log in again.'; end if;
+  delete from public.anonyms_messages where id = p_message_id and username = v_username;
+  return found;
+end;
+$;
+
 create or replace function public.anonyms_fast_send(
   p_token_hash text,
   p_message text
@@ -126,7 +146,9 @@ $$;
 
 revoke all on function public.anonyms_fast_messages(text,timestamptz,timestamptz,integer) from public;
 revoke all on function public.anonyms_fast_send(text,text) from public;
+revoke all on function public.anonyms_fast_delete(text,uuid) from public;
 grant execute on function public.anonyms_fast_messages(text,timestamptz,timestamptz,integer) to anon, authenticated;
 grant execute on function public.anonyms_fast_send(text,text) to anon, authenticated;
+grant execute on function public.anonyms_fast_delete(text,uuid) to anon, authenticated;
 
 commit;
