@@ -30,3 +30,12 @@ Gallery photos and videos are stored in the Google Drive folder owned by the acc
 To display media on devices that are not signed in to the Drive owner account, the backend sets **only each gallery media file** to **Anyone with the link — Viewer**. It does not make the whole Drive or parent folder public. **Anyone who obtains a direct media URL can open that file without the Anonyms login**, so do not upload media that must remain private. Google Workspace policy can block link sharing; if it does, the upload reports a clear error instead of saving an unusable gallery record.
 
 For older gallery uploads, deploy the latest `google-backend/Code.gs`, then run `enableExistingGalleryLinksForMigration` manually once from the Apps Script editor. Review the execution log for the count and any failures. New uploads use link-view permissions automatically.
+
+
+## Message deletion and faster login/leave
+
+- Messages disappear immediately when Delete is clicked, with no confirmation dialog. Persistence uses the session-validated Supabase RPC when configured or the Apps Script fallback.
+- Both delete paths restrict deletion to messages sent by the active session user.
+- Run the updated `anonyms_fast_chat.sql` in Supabase SQL Editor to enable direct deletion for the fast-chat path.
+- Login now returns before Supabase session registration and success audit logging; the app shell is shown first, then session sync and chat hydration run in the background. Leaving already switches screens immediately and revokes the session in the background.
+- A strict under-three-second login cannot be guaranteed during Apps Script cold starts or slow network responses, but this removes avoidable backend calls from the critical path.

@@ -60,6 +60,8 @@ function doPost(e) {
         result = { ok: true };
       }
       else if (action === 'whoami') result = supabaseClientSession_(user, payload.token);
+      else if (action === 'syncSession') { registerSupabaseSession_(digest_(String(payload.token || '')), user, sessionExpiry_(payload.token)); logSupabaseLoginEvent_(user, 'login_success'); result = { ok: true }; }
+      else if (action === 'deleteMessage') result = deleteSupabaseMessage_(user, payload.message_id);
       else if (action === 'messages') result = { ok: true, user: user, messages: getSupabaseMessages_(payload.before, payload.limit, payload.after) };
       else if (action === 'gallery') result = { ok: true, user: user, items: getGallery_(user) };
       else if (action === 'toggleLike') result = toggleSupabaseLike_(user, payload.gallery_id);
@@ -130,7 +132,6 @@ function login_(username, password) {
   const props = PropertiesService.getScriptProperties();
   const expected = props.getProperty('ANONYMS_USER_' + username.toUpperCase() + '_PASSWORD');
   if (!expected || !constantTimeEqual_(String(password), String(expected))) {
-    Utilities.sleep(500);
     logSupabaseLoginEvent_(username, 'login_failure');
     return { ok: false, error: 'Invalid username or password.' };
   }
@@ -139,8 +140,7 @@ function login_(username, password) {
   const now = new Date();
   const expires = new Date(now.getTime() + CFG.SESSION_TTL_SECONDS * 1000);
   withLock_(() => sheet_('Sessions').appendRow([hash, username, now.toISOString(), expires.toISOString(), now.toISOString()]));
-  registerSupabaseSession_(hash, username, expires.toISOString());
-  logSupabaseLoginEvent_(username, 'login_success');
+  // Keep authentication response lean; Supabase session sync and audit logging happen after the UI appears.
   return Object.assign({ ok: true, user: username, token: token, expires_at: expires.toISOString() }, supabaseClientConfig_());
 }
 
@@ -324,6 +324,18 @@ function supabaseSignedAudioUrl_(path) {
   const url = signed.startsWith('http') ? signed : base + '/storage/v1' + (signed.startsWith('/') ? signed : '/' + signed);
   cache.put(cacheKey, url, 21600);
   return url;
+}
+function sessionExpiry_(token) {
+  const hash = digest_(String(token || ''));
+  const row = rowsAsObjects_('Sessions').find(item => item.token_hash === hash);
+  if (!row || new Date(row.expires_at).getTime() <= Date.now()) throw new Error('Session expired. Please log in again.');
+  return row.expires_at;
+}
+function deleteSupabaseMessage_(user, messageId) {
+  const id = String(messageId || '').trim();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Invalid message ID.');
+  supabaseRest_('DELETE', '/rest/v1/anonyms_messages?id=eq.' + encodeURIComponent(id) + '&username=eq.' + encodeURIComponent(user), null, 'return=minimal');
+  return { ok: true, message_id: id };
 }
 function getSupabaseMessages_(before, limit, after) {
   const max = Math.min(Math.max(Number(limit) || 200,1),200);

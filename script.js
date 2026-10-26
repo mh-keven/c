@@ -230,14 +230,15 @@
     $('gallery-message').textContent = 'Loading your memories…';
     $('messages').setAttribute('aria-busy', 'true');
     clearTimeout(pollTimer); clearInterval(statusTimer);
-    scheduleMessagePoll(100);
+    // Sync the Supabase session after displaying the app; avoid blocking login on that network call.
+    post('syncSession', {token:state.token}).then(() => { state.fastChatDisabled = false; if (state.token) { scheduleMessagePoll(50); loadMessages(true).catch(showApiError); } }).catch(error => { console.warn('Supabase session sync unavailable; using Apps Script chat.', error); scheduleMessagePoll(50); loadMessages(true).catch(showApiError); });
     statusTimer = setInterval(async () => {
       if (!document.hidden && state.token) {
         try { await post('touch', {token: state.token}); await loadStatus(); } catch (_) {}
       }
     }, 8000);
     // Do not block the visible page on slow Google Sheets calls.
-    loadMessages(true).catch(showApiError).finally(() => $('messages').removeAttribute('aria-busy'));
+    // Message hydration starts after background session sync.
     loadGallery().catch(error => {
       $('gallery-message').textContent = 'Could not load gallery. Tap Refresh to retry.';
       console.warn('Gallery load failed', error);
@@ -411,19 +412,25 @@
         const deleteBtn = document.createElement('button');
         deleteBtn.type = 'button';
         deleteBtn.className = 'delete-message-btn';
-        deleteBtn.textContent = 'Delete';
+        deleteBtn.textContent = '✕ Delete';
+        deleteBtn.title = 'Delete this message immediately';
         deleteBtn.setAttribute('aria-label', 'Delete your message');
         deleteBtn.addEventListener('click', async () => {
-          if (!window.confirm('Delete this message?')) return;
-          deleteBtn.disabled = true;
+          const deletedMessage = m;
+          state.messages = state.messages.filter(message => String(message.id) !== String(deletedMessage.id));
+          renderMessages();
           try {
-            await post('deleteMessage', {token:state.token, message_id:m.id});
-            state.messages = state.messages.filter(message => String(message.id) !== String(m.id));
-            renderMessages();
+            if (hasDirectSupabaseConfig()) {
+              await fastSupabaseRpc('anonyms_fast_delete', {p_token_hash: await sessionTokenHash(), p_message_id: deletedMessage.id});
+            } else {
+              await post('deleteMessage', {token:state.token, message_id:deletedMessage.id});
+            }
             banner('');
           } catch (error) {
-            deleteBtn.disabled = false;
-            banner('Could not delete this message. The backend must support the deleteMessage action: ' + error.message);
+            state.messages.push(deletedMessage);
+            state.messages.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+            renderMessages();
+            banner('Could not delete message: ' + error.message + '. If fast-chat SQL was just updated, run the latest migration in Supabase.');
           }
         });
         bubble.append(deleteBtn);
