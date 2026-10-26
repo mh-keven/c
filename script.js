@@ -4,7 +4,7 @@
   // Paste the deployed Apps Script Web App URL ending in /exec here.
   const API_URL = 'https://script.google.com/macros/s/AKfycbyW_06rlpggyk054n43VbwYhgJarWsoV7CRR8iRm43Lvi_ghUKzSJeOJoM7t5pF6KcsAQ/exec';
   const $ = id => document.getElementById(id);
-  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', call: null, callCursor: 0, lastCallId: '', lastCallStatus: '', callPolling: false, callTimer: null, recorder: null, recordingChunks: [], recordingStartedAt: 0, pendingGalleryFiles: [], localVoiceUrls: [] };
+  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', recorder: null, recordingChunks: [], recordingStartedAt: 0, pendingGalleryFiles: [], localVoiceUrls: [] };
   const EMOJI_GROUPS = {
     smileys: [
       '❤️','😀','😃','😄','😁','😆','😅','😂','🤣','🥲','☺️','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🫣','🤭','🫢','🫡','🤫','🫠','🤥','😶','🫥','😐','🫤','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','😵‍💫','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','💀','☠️','🤡','👻','👽','🤖'
@@ -225,13 +225,11 @@
     $('login-screen').hidden = true; $('app-screen').hidden = false;
     $('conn-status').textContent = 'Connected as ' + state.user; $('conn-status').dataset.state = 'online';
     await Promise.all([loadMessages(true), loadGallery(), loadStatus()]);
-    clearTimeout(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
+    clearTimeout(pollTimer); clearInterval(statusTimer);
     // Poll only after the previous request finishes; while the chat is visible,
     // a short delay after each response keeps delivery responsive without overlap.
     scheduleMessagePoll(100);
     statusTimer = setInterval(async () => { if (!document.hidden) { try { await post('touch', {token: state.token}); await loadStatus(); } catch (_) {} } }, 8000);
-    state.callTimer = setInterval(() => { if (!document.hidden) pollCallState().catch(() => {}); }, 1400);
-    pollCallState().catch(() => {});
   }
 
   function showApiError(error) { banner(error.message || 'Something went wrong.'); }
@@ -261,8 +259,7 @@
     $('voice-note-btn').hidden = hasText;
   }
   async function logout() {
-    await endCall(true);
-    clearInterval(pollTimer); clearInterval(statusTimer); clearInterval(state.callTimer);
+    clearTimeout(pollTimer); clearInterval(statusTimer);
     try { await post('logout', { token: state.token }); } catch (_) {}
     state.token = ''; state.user = ''; state.messages = []; state.gallery = []; state.newest = ''; state.before = '';
     sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user');
@@ -591,226 +588,11 @@
     state.peerOnline = !!peer.online;
     $('conn-status').textContent = state.peerUsername + (peer.online ? ' · online' : peer.last_seen ? ' · last seen ' + timeLabel(peer.last_seen) : ' · offline');
     $('conn-status').dataset.state = peer.online ? 'online' : 'offline';
-    renderVideoPanel();
   }
 
 
   // WebRTC video calls: only the other person's video is rendered. No mute/camera toggles.
-  function renderVideoPanel() {
-    const peerName = state.peerUsername || (state.user === 'Keven' ? 'Zubii' : 'Keven');
-    const call = state.call;
-    const active = !!call && ['pending','accepted'].includes(call.status);
-    $('request-video-btn').hidden = active;
-    $('request-video-btn').disabled = !state.peerOnline || !!state.call;
-    $('request-video-btn').textContent = state.peerOnline ? 'See face' : peerName + ' is offline';
-    $('video-panel-title').textContent = active ? (call.status === 'accepted' ? 'See face' : 'See face') : 'See the face';
-    $('incoming-call-actions').hidden = !(active && call.status === 'pending' && call.role === 'callee');
-    $('end-video-btn').hidden = !active;
-    $('remote-video-wrap').hidden = !(active && call.status === 'accepted');
-    if (active && call.status === 'pending' && call.role === 'callee') $('video-call-status').textContent = call.caller + ' is requesting to start video.';
-    else if (active && call.status === 'pending' && call.role === 'caller') $('video-call-status').textContent = 'Waiting for them to accept…';
-    else if (active && call.status === 'accepted') $('video-call-status').textContent = call.connected ? 'Connected' : 'Connecting…';
-    else $('video-call-status').textContent = state.peerOnline ? 'Start video when you are ready.' : peerName + ' is not online yet.';
-  }
-
-  function stopLocalMedia(call = state.call) {
-    if (call && call.localStream) {
-      call.localStream.getTracks().forEach(track => { try { track.stop(); } catch (_) {} });
-      call.localStream = null;
-    }
-    const video = $('remote-video');
-    if (video) video.srcObject = null;
-  }
-  function closeCallResources(call = state.call) {
-    if (!call) return;
-    stopLocalMedia(call);
-    if (call.pc) { try { call.pc.ontrack = null; call.pc.onicecandidate = null; call.pc.close(); } catch (_) {} call.pc = null; }
-    call.remoteStream = null;
-  }
-  async function endCall(notifyServer = true) {
-    const call = state.call;
-    if (!call) { renderVideoPanel(); return; }
-    closeCallResources(call);
-    if (notifyServer && state.token && call.id) {
-      try { await post('callEnd', {token:state.token, call_id:call.id}); } catch (_) {}
-    }
-    state.lastCallId = call.id || state.lastCallId;
-    state.lastCallStatus = 'ended';
-    state.call = null;
-    renderVideoPanel();
-  }
-  async function requestVideoCall() {
-    if (!state.peerOnline || state.call) return;
-    $('request-video-btn').disabled = true;
-    try {
-      const result = await post('callRequest', {token:state.token});
-      state.call = {id:result.call.id, caller:result.call.caller, callee:result.call.callee, status:result.call.status, role:'caller', pc:null, localStream:null, remoteStream:null, pendingCandidates:[], offerStarted:false, connected:false};
-      state.lastCallId = state.call.id; state.lastCallStatus = state.call.status;
-      renderVideoPanel();
-    } catch (error) { $('video-call-status').textContent = error.message; }
-    finally { renderVideoPanel(); }
-  }
-  async function acceptVideoCall() {
-    const call = state.call;
-    if (!call || call.role !== 'callee' || call.status !== 'pending') return;
-    $('accept-video-btn').disabled = true;
-    try {
-      await post('callRespond', {token:state.token, call_id:call.id, decision:'accept'});
-      call.status = 'accepted';
-      renderVideoPanel();
-      await setupAcceptedCall(call);
-    } catch (error) {
-      $('video-call-status').textContent = error.message;
-      await endCall(true);
-    } finally { $('accept-video-btn').disabled = false; }
-  }
-  async function declineVideoCall() {
-    const call = state.call;
-    if (!call || call.role !== 'callee' || call.status !== 'pending') return;
-    try { await post('callRespond', {token:state.token, call_id:call.id, decision:'decline'}); } catch (_) {}
-    closeCallResources(call); state.lastCallId = call.id; state.lastCallStatus = 'declined'; state.call = null; renderVideoPanel();
-  }
-  function setupPeerConnection(call) {
-    if (call.pc) return call.pc;
-    const pc = new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}],bundlePolicy:'max-bundle',iceCandidatePoolSize:4});
-    call.pc = pc;
-    call.remoteStream = new MediaStream();
-    $('remote-video').srcObject = call.remoteStream;
-    pc.ontrack = event => {
-      const streams = event.streams || [];
-      if (streams[0]) streams[0].getTracks().forEach(track => {
-        if (!call.remoteStream.getTracks().some(existing => existing.id === track.id)) call.remoteStream.addTrack(track);
-      });
-      else if (event.track && !call.remoteStream.getTracks().some(existing => existing.id === event.track.id)) call.remoteStream.addTrack(event.track);
-      $('remote-video').srcObject = call.remoteStream;
-      $('remote-video').play().catch(()=>{});
-    };
-    pc.onicecandidate = event => {
-      if (event.candidate && state.call === call) post('callSignal', {token:state.token, call_id:call.id, type:'ice', payload:event.candidate.toJSON()}).catch(()=>{});
-    };
-    pc.onconnectionstatechange = () => {
-      if (state.call !== call) return;
-      if (pc.connectionState === 'connected') { call.connected = true; renderVideoPanel(); }
-      if (['failed','closed','disconnected'].includes(pc.connectionState)) {
-        if (pc.connectionState === 'failed') { banner('Video could not connect. This network may require a TURN relay.'); endCall(true); }
-        else if (pc.connectionState === 'disconnected') setTimeout(() => { if (state.call === call && call.pc && call.pc.connectionState === 'disconnected') endCall(true); }, 8000);
-      }
-    };
-    return pc;
-  }
-  async function setupAcceptedCall(call) {
-    if (state.call !== call || call.status !== 'accepted') return;
-    const pc = setupPeerConnection(call);
-    if (!call.localStream) {
-      call.localStream = await navigator.mediaDevices.getUserMedia({
-        audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true},
-        video:{facingMode:'user', width:{ideal:320,max:480}, height:{ideal:240,max:360}, frameRate:{ideal:15,max:20}}
-      });
-      if (state.call !== call) { call.localStream.getTracks().forEach(t=>t.stop()); return; }
-      call.localStream.getTracks().forEach(track => pc.addTrack(track, call.localStream));
-      const videoSender = pc.getSenders().find(sender => sender.track && sender.track.kind === 'video');
-      if (videoSender && videoSender.getParameters && videoSender.setParameters) {
-        try {
-          const params = videoSender.getParameters();
-          params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
-          params.encodings[0].maxBitrate = 350000; params.encodings[0].maxFramerate = 15;
-          params.degradationPreference = 'maintain-framerate';
-          await videoSender.setParameters(params);
-        } catch (_) {}
-      }
-    }
-    if (call.role === 'caller' && !call.offerStarted) {
-      call.offerStarted = true;
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await post('callSignal', {token:state.token, call_id:call.id, type:'offer', payload:pc.localDescription});
-    }
-    await flushCandidates(call);
-  }
-  async function flushCandidates(call) {
-    if (!call.pc || !call.pc.remoteDescription || !call.pendingCandidates) return;
-    const candidates = call.pendingCandidates.splice(0);
-    for (const candidate of candidates) {
-      try { await call.pc.addIceCandidate(new RTCIceCandidate(candidate)); } catch (_) {}
-    }
-  }
-  async function handleCallSignal(call, signal) {
-    if (state.call !== call || call.status !== 'accepted') return;
-    if (signal.type === 'offer' && call.role === 'callee') {
-      await setupAcceptedCall(call);
-      const pc = call.pc;
-      if (!pc.remoteDescription) {
-        await pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
-        await flushCandidates(call);
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await post('callSignal', {token:state.token, call_id:call.id, type:'answer', payload:pc.localDescription});
-      }
-    } else if (signal.type === 'answer' && call.role === 'caller' && call.pc && !call.pc.remoteDescription) {
-      await call.pc.setRemoteDescription(new RTCSessionDescription(signal.payload));
-      await flushCandidates(call);
-    } else if (signal.type === 'ice') {
-      if (call.pc && call.pc.remoteDescription) {
-        try { await call.pc.addIceCandidate(new RTCIceCandidate(signal.payload)); } catch (_) {}
-      } else call.pendingCandidates.push(signal.payload);
-    }
-  }
-  async function pollCallState() {
-    if (!state.token || state.callPolling) return;
-    state.callPolling = true;
-    try {
-      const result = await post('callPoll', {token:state.token, cursor:state.callCursor});
-      state.callCursor = Number(result.cursor || state.callCursor);
-      const serverCall = result.call;
-      if (serverCall && serverCall.id !== state.lastCallId) {
-        if (state.call && state.call.id !== serverCall.id) await endCall(true);
-        if (['pending','accepted'].includes(serverCall.status)) {
-          state.call = {id:serverCall.id, caller:serverCall.caller, callee:serverCall.callee, status:serverCall.status,
-            role:serverCall.caller === state.user ? 'caller' : 'callee', pc:null, localStream:null, remoteStream:null,
-            pendingCandidates:[], offerStarted:false, connected:false};
-          state.lastCallId = serverCall.id; state.lastCallStatus = serverCall.status;
-          renderVideoPanel();
-          if (serverCall.status === 'accepted') setupAcceptedCall(state.call).catch(async error => {
-            $('video-call-status').textContent = error.name === 'NotAllowedError' ? 'Allow camera and microphone to start video.' : (error.message || 'Could not start video.');
-            await endCall(true);
-          });
-        } else {
-          state.lastCallId = serverCall.id; state.lastCallStatus = serverCall.status;
-        }
-      } else if (serverCall && state.call && serverCall.id === state.call.id && serverCall.status !== state.call.status) {
-        state.call.status = serverCall.status;
-        state.lastCallStatus = serverCall.status;
-        if (serverCall.status === 'accepted') setupAcceptedCall(state.call).catch(async error => {
-          $('video-call-status').textContent = error.name === 'NotAllowedError' ? 'Allow camera and microphone to start video.' : (error.message || 'Could not start the call.');
-          await endCall(true);
-        });
-        if (['ended','declined'].includes(serverCall.status)) {
-          closeCallResources(state.call); state.call = null; renderVideoPanel();
-        } else renderVideoPanel();
-      }
-      if (serverCall && state.call && serverCall.id === state.call.id && serverCall.status === 'pending' && state.call.role === 'callee') renderVideoPanel();
-      if (serverCall && state.call && serverCall.id === state.call.id && serverCall.status === 'accepted') {
-        for (const signal of (result.signals || [])) await handleCallSignal(state.call, signal);
-      }
-    } catch (_) {
-      // Temporary signaling errors should not break chat polling.
-    } finally { state.callPolling = false; }
-  }
-  $('request-video-btn').addEventListener('click', requestVideoCall);
-  $('accept-video-btn').addEventListener('click', acceptVideoCall);
-  $('decline-video-btn').addEventListener('click', declineVideoCall);
-  $('end-video-btn').addEventListener('click', () => endCall(true));
-  window.addEventListener('pagehide', () => {
-    const call = state.call;
-    closeCallResources(call);
-    if (call && state.token && apiConfigured()) {
-      try {
-        const data = new URLSearchParams({action:'callEnd', payload:JSON.stringify({token:state.token, call_id:call.id}), nonce:'pagehide'});
-        navigator.sendBeacon(API_URL, data);
-      } catch (_) {}
-    }
-  });
-  window.addEventListener('beforeunload', () => { closeCallResources(state.call); state.localVoiceUrls.forEach(url => URL.revokeObjectURL(url)); });
+  window.addEventListener('beforeunload', () => { state.localVoiceUrls.forEach(url => URL.revokeObjectURL(url)); });
 
   async function loadGallery() {
     $('gallery-message').textContent = 'Loading your memories…';
@@ -832,8 +614,8 @@
         // Prefer Drive's thumbnail endpoint for embedded gallery images; the uc=view
         // endpoint can return a non-image response for some Drive files.
         const imageSources = [
-          'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1200',
           'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId),
+          'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1200',
           'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1000'
         ];
         let imageSourceIndex = 0;
@@ -855,7 +637,16 @@
         const cover = document.createElement('div'); cover.className = 'video-placeholder'; cover.textContent = '▶'; preview.append(cover);
         const badge = document.createElement('span'); badge.className = 'media-type-badge'; badge.textContent = '▶ VIDEO'; preview.append(badge);
       }
-      preview.addEventListener('click', () => openMedia(item));
+      preview.addEventListener('click', () => {
+        if (item.media_type === 'image' && item.drive_file_id) {
+          // The user confirmed this exact Google Drive URL opens the original image.
+          // Open it directly instead of relying on Drive's embedded-image behavior.
+          const originalImageUrl = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(item.drive_file_id);
+          window.open(originalImageUrl, '_blank', 'noopener,noreferrer');
+          return;
+        }
+        openMedia(item);
+      });
       const details = document.createElement('div'); details.className = 'gallery-card-details';
       const title = document.createElement('h3'); title.textContent = item.title || (item.media_type === 'image' ? 'Photo' : 'Video');
       const caption = document.createElement('p'); caption.textContent = item.caption || '';
@@ -974,15 +765,28 @@
       frame.allowFullscreen = true;
       stage.append(frame);
     } else if (item.media_type === 'image') {
-      const img = document.createElement('img');
       const driveId = item.drive_file_id || '';
-      img.src = item.media_url || ('https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1600');
+      const directUrl = driveId
+        ? 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId)
+        : (item.media_url || '');
+      const img = document.createElement('img');
+      img.alt = item.title || 'Shared image';
+      img.decoding = 'async';
+      img.src = directUrl || item.media_url || '';
       img.addEventListener('error', () => {
-        if (img.dataset.fallbackTried) return;
-        img.dataset.fallbackTried = '1';
-        img.src = 'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId);
-      });
-      img.alt = item.title || 'Shared image'; stage.append(img);
+        img.remove();
+        const fallback = document.createElement('div');
+        fallback.className = 'gallery-image-unavailable';
+        fallback.append(document.createTextNode('Unable to embed this photo here. '));
+        const link = document.createElement('a');
+        link.href = directUrl || item.media_url || '#';
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Open full image';
+        fallback.append(link);
+        stage.append(fallback);
+      }, { once: true });
+      stage.append(img);
     } else {
       const frame = document.createElement('iframe'); frame.src = item.preview_url || ('https://drive.google.com/file/d/' + encodeURIComponent(item.drive_file_id) + '/preview'); frame.title = item.title || 'Shared video'; frame.allow = 'autoplay'; frame.allowFullscreen = true; stage.append(frame);
     }

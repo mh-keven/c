@@ -879,3 +879,22 @@ body { min-height:100%; background:radial-gradient(ellipse at 12% -10%,rgba(30,1
   display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
   padding: 18px; color: #343b4a; background: #f3f5f8; font-size: .85rem; text-align: center;
 }
+
+
+/* Remove the live-video/calling feature; let chat occupy the full workspace. */
+.video-panel, #video-panel { display: none !important; }
+.chat-workspace { display: flex !important; grid-template-columns: none !important; grid-template-rows: none !important; gap: 0 !important; width: 100%; min-width: 0; }
+.chat-workspace > .chat-main { flex: 1 1 100%; width: 100%; min-width: 0; }
+
+/* Mobile-friendly media viewer: keep the player inside the visible screen. */
+.media-modal { box-sizing: border-box; padding: 52px 10px 14px; gap: 8px; overflow: auto; }
+.media-stage { box-sizing: border-box; width: min(100%, 1000px); height: min(68vh, 720px); min-height: 0; aspect-ratio: 16 / 9; }
+.media-stage iframe { display: block; width: 100%; height: 100%; max-height: 100%; border: 0; }
+.media-stage img { display: block; width: 100%; height: 100%; object-fit: contain; }
+@media (max-width: 620px) {
+  .media-modal { justify-content: flex-start; padding: max(48px, env(safe-area-inset-top)) 8px max(12px, env(safe-area-inset-bottom)); gap: 8px; }
+  .media-stage { width: 100%; height: auto; max-height: 56vh; aspect-ratio: 16 / 9; flex: 0 0 auto; }
+  .media-stage iframe { height: auto; aspect-ratio: 16 / 9; max-height: 56vh; }
+  .media-stage img { max-height: 56vh; }
+  #media-caption { max-width: 100%; overflow-wrap: anywhere; font-size: .85rem; }
+}
