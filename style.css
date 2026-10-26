@@ -1036,3 +1036,15 @@ body { overflow-x:hidden; }
 }
 .delete-message-btn:hover { opacity: 1; }
 .delete-message-btn:disabled { opacity: .4; cursor: wait; }
+
+
+/* Make message deletion easy to spot and tap; deletion is immediate with no confirmation. */
+.delete-message-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 32px; margin: 7px 0 0 auto; padding: 5px 10px;
+  border: 1px solid #c62828; border-radius: 8px; background: #c62828;
+  color: #fff; font-size: .78rem; font-weight: 700; opacity: 1; cursor: pointer;
+}
+.delete-message-btn:hover { background: #a91f1f; border-color: #a91f1f; }
+.delete-message-btn:focus-visible { outline: 3px solid rgba(198,40,40,.28); outline-offset: 2px; }
+.delete-message-btn:disabled { opacity: .5; cursor: wait; }
