@@ -222,14 +222,27 @@
   });
 
   async function openApp() {
-    $('login-screen').hidden = true; $('app-screen').hidden = false;
-    $('conn-status').textContent = 'Connected as ' + state.user; $('conn-status').dataset.state = 'online';
-    await Promise.all([loadMessages(true), loadGallery(), loadStatus()]);
+    // Paint the app shell immediately; Sheets-backed data can hydrate afterward.
+    $('login-screen').hidden = true;
+    $('app-screen').hidden = false;
+    $('conn-status').textContent = 'Connected as ' + state.user;
+    $('conn-status').dataset.state = 'online';
+    $('gallery-message').textContent = 'Loading your memories…';
+    $('messages').setAttribute('aria-busy', 'true');
     clearTimeout(pollTimer); clearInterval(statusTimer);
-    // Poll only after the previous request finishes; while the chat is visible,
-    // a short delay after each response keeps delivery responsive without overlap.
     scheduleMessagePoll(100);
-    statusTimer = setInterval(async () => { if (!document.hidden) { try { await post('touch', {token: state.token}); await loadStatus(); } catch (_) {} } }, 8000);
+    statusTimer = setInterval(async () => {
+      if (!document.hidden && state.token) {
+        try { await post('touch', {token: state.token}); await loadStatus(); } catch (_) {}
+      }
+    }, 8000);
+    // Do not block the visible page on slow Google Sheets calls.
+    loadMessages(true).catch(showApiError).finally(() => $('messages').removeAttribute('aria-busy'));
+    loadGallery().catch(error => {
+      $('gallery-message').textContent = 'Could not load gallery. Tap Refresh to retry.';
+      console.warn('Gallery load failed', error);
+    });
+    loadStatus().catch(() => {});
   }
 
   function showApiError(error) { banner(error.message || 'Something went wrong.'); }
@@ -260,12 +273,15 @@
   }
   async function logout() {
     clearTimeout(pollTimer); clearInterval(statusTimer);
-    try { await post('logout', { token: state.token }); } catch (_) {}
+    const oldToken = state.token;
+    // Leave the app instantly; server-side session cleanup is best-effort in the background.
     state.token = ''; state.user = ''; state.messages = []; state.gallery = []; state.newest = ''; state.before = '';
     sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user');
     sessionStorage.removeItem('anonyms_supabase_url'); sessionStorage.removeItem('anonyms_supabase_anon_key');
     state.supabaseUrl = ''; state.supabaseAnonKey = ''; state.fastChatDisabled = false;
-    $('app-screen').hidden = true; $('login-screen').hidden = false; $('message-list').replaceChildren(); $('gallery-grid').replaceChildren(); banner('');
+    $('app-screen').hidden = true; $('login-screen').hidden = false;
+    $('message-list').replaceChildren(); $('gallery-grid').replaceChildren(); banner('');
+    if (oldToken) post('logout', { token: oldToken }).catch(() => {});
   }
   $('logout-btn').addEventListener('click', logout);
   syncComposerActions();
@@ -614,9 +630,9 @@
         // Prefer Drive's thumbnail endpoint for embedded gallery images; the uc=view
         // endpoint can return a non-image response for some Drive files.
         const imageSources = [
-          'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId),
-          'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1200',
-          'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1000'
+          'https://drive.google.com/thumbnail?id=' + encodeURIComponent(driveId) + '&sz=w1600',
+          'https://lh3.googleusercontent.com/d/' + encodeURIComponent(driveId),
+          'https://drive.google.com/uc?export=view&id=' + encodeURIComponent(driveId)
         ];
         let imageSourceIndex = 0;
         img.src = imageSources[imageSourceIndex];
