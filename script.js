@@ -654,7 +654,7 @@
     state.peerUsername = peer.username || (state.user === 'Keven' ? 'Zubii' : 'Keven');
     const wasOnline = state.peerOnline;
     const isOnline = !!peer.online;
-    if (state.peerStatusInitialized && !wasOnline && isOnline) addSystemEvent(state.peerUsername + ' is online');
+    if ((!state.peerStatusInitialized && isOnline) || (state.peerStatusInitialized && !wasOnline && isOnline)) addSystemEvent(state.peerUsername + ' is online');
     state.peerOnline = isOnline;
     state.peerStatusInitialized = true;
     $('conn-status').textContent = state.peerUsername + (peer.online ? ' · online' : peer.last_seen ? ' · last seen ' + timeLabel(peer.last_seen) : ' · offline');
