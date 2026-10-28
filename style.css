@@ -1080,3 +1080,23 @@ body { overflow-x:hidden; }
 @media (max-width: 620px) {
   .delete-message-btn { flex-basis: 23px; width: 23px; min-width: 23px; height: 23px; min-height: 23px; margin-right: 5px; font-size: 14px; }
 }
+
+
+/* ---------- Small system notices for online arrivals ---------- */
+.system-event {
+  display: flex;
+  justify-content: center;
+  margin: 12px auto;
+  padding: 5px 11px;
+  width: fit-content;
+  max-width: 92%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 84%, var(--rose) 16%);
+  color: var(--ink-soft);
+  font-size: .72rem;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  animation: pop .22s ease-out both;
+}
