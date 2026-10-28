@@ -393,6 +393,7 @@
     state.systemEvents.push({id:'system-' + Date.now() + '-' + Math.random().toString(36).slice(2), system:true, username, message:username + ' is online', created_at:new Date().toISOString()});
     state.systemEvents = state.systemEvents.slice(-100);
     renderMessages();
+    $('empty-state').hidden = true;
     $('messages').scrollTop = $('messages').scrollHeight;
   }
   function renderMessages() {

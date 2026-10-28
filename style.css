@@ -1086,6 +1086,8 @@ body { overflow-x:hidden; }
 .system-event {
   display: flex;
   justify-content: center;
+  box-sizing: border-box;
+  clear: both;
   margin: 8px 0;
   clear: both;
   padding: 5px 11px;
@@ -1101,5 +1103,5 @@ body { overflow-x:hidden; }
   box-shadow: var(--shadow-sm);
   animation: pop .22s ease-out both;
 }
-.system-event.mine { margin-left: auto; margin-right: 8px; }
-.system-event.theirs { margin-left: 8px; margin-right: auto; }
+.system-event.mine { margin-left: auto; margin-right: 0; }
+.system-event.theirs { margin-left: 0; margin-right: auto; }
