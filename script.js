@@ -402,9 +402,11 @@
     const displayMessages = [...state.messages, ...state.systemEvents].sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
     displayMessages.forEach(m => {
       if (m.system) {
+        const noticeRow = document.createElement('div');
+        noticeRow.className = 'system-event-row ' + (m.username === state.user ? 'mine' : 'theirs');
         const notice = separator(m.message + ' · ' + timeLabel(m.created_at), 'system-event');
-        notice.classList.add(m.username === state.user ? 'mine' : 'theirs');
-        list.append(notice);
+        noticeRow.append(notice);
+        list.append(noticeRow);
         previous = m;
         return;
       }
