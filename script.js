@@ -673,7 +673,7 @@
   async function loadGallery() {
     $('gallery-message').textContent = 'Loading your memories…';
     const result = await post('gallery', {token:state.token});
-    state.gallery = result.items || []; $('gallery-count').textContent = ''; 
+    state.gallery = result.items || []; 
     renderGallery();
   }
   function renderGallery() {
