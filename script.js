@@ -4,7 +4,7 @@
   // Paste the deployed Apps Script Web App URL ending in /exec here.
   const API_URL = 'https://script.google.com/macros/s/AKfycbyW_06rlpggyk054n43VbwYhgJarWsoV7CRR8iRm43Lvi_ghUKzSJeOJoM7t5pF6KcsAQ/exec';
   const $ = id => document.getElementById(id);
-  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerUsername: '', recorder: null, recordingChunks: [], recordingStartedAt: 0, pendingGalleryFiles: [], localVoiceUrls: [] };
+  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerStatusInitialized: false, peerUsername: '', systemEvents: [], recorder: null, recordingChunks: [], recordingStartedAt: 0, pendingGalleryFiles: [], localVoiceUrls: [] };
   const EMOJI_GROUPS = {
     smileys: [
       '❤️','😀','😃','😄','😁','😆','😅','😂','🤣','🥲','☺️','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🫣','🤭','🫢','🫡','🤫','🫠','🤥','😶','🫥','😐','🫤','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','😵‍💫','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','💀','☠️','🤡','👻','👽','🤖'
@@ -227,6 +227,8 @@
     $('app-screen').hidden = false;
     $('conn-status').textContent = 'Connected as ' + state.user;
     $('conn-status').dataset.state = 'online';
+    state.systemEvents = [];
+    addSystemEvent(state.user + ' is online');
     $('gallery-message').textContent = 'Loading your memories…';
     $('messages').setAttribute('aria-busy', 'true');
     clearTimeout(pollTimer); clearInterval(statusTimer);
@@ -276,7 +278,7 @@
     clearTimeout(pollTimer); clearInterval(statusTimer);
     const oldToken = state.token;
     // Leave the app instantly; server-side session cleanup is best-effort in the background.
-    state.token = ''; state.user = ''; state.messages = []; state.gallery = []; state.newest = ''; state.before = '';
+    state.token = ''; state.user = ''; state.messages = []; state.systemEvents = []; state.peerStatusInitialized = false; state.peerOnline = false; state.gallery = []; state.newest = ''; state.before = '';
     sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user');
     sessionStorage.removeItem('anonyms_supabase_url'); sessionStorage.removeItem('anonyms_supabase_anon_key');
     state.supabaseUrl = ''; state.supabaseAnonKey = ''; state.fastChatDisabled = false;
@@ -387,10 +389,22 @@
   }
   function timeLabel(value) { return new Date(value).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }
   function separator(label, cls) { const wrap = document.createElement('div'); wrap.className = cls; const span = document.createElement('span'); span.textContent = label; wrap.append(span); return wrap; }
+  function addSystemEvent(message) {
+    state.systemEvents.push({id:'system-' + Date.now() + '-' + Math.random().toString(36).slice(2), system:true, message, created_at:new Date().toISOString()});
+    state.systemEvents = state.systemEvents.slice(-100);
+    renderMessages();
+    $('messages').scrollTop = $('messages').scrollHeight;
+  }
   function renderMessages() {
     const list = $('message-list'); list.replaceChildren();
     let previous = null;
-    state.messages.forEach(m => {
+    const displayMessages = [...state.messages, ...state.systemEvents].sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+    displayMessages.forEach(m => {
+      if (m.system) {
+        list.append(separator(m.message + ' · ' + timeLabel(m.created_at), 'system-event'));
+        previous = m;
+        return;
+      }
       if (!previous || dayKey(m.created_at) !== dayKey(previous.created_at)) list.append(separator(dateLabel(m.created_at), 'day-sep'));
       else if ((new Date(m.created_at) - new Date(previous.created_at)) >= 5 * 60 * 1000) list.append(separator(timeLabel(m.created_at), 'time-gap-sep'));
       const row = document.createElement('div');
@@ -445,7 +459,7 @@
       }
       row.append(bubble); list.append(row); previous = m;
     });
-    $('empty-state').hidden = state.messages.length > 0;
+    $('empty-state').hidden = state.messages.length + state.systemEvents.length > 0;
     $('load-earlier').hidden = state.messages.length < 200;
   }
 
@@ -638,7 +652,11 @@
     const result = await post('status', {token:state.token});
     const peer = result.peer || {};
     state.peerUsername = peer.username || (state.user === 'Keven' ? 'Zubii' : 'Keven');
-    state.peerOnline = !!peer.online;
+    const wasOnline = state.peerOnline;
+    const isOnline = !!peer.online;
+    if (state.peerStatusInitialized && !wasOnline && isOnline) addSystemEvent(state.peerUsername + ' is online');
+    state.peerOnline = isOnline;
+    state.peerStatusInitialized = true;
     $('conn-status').textContent = state.peerUsername + (peer.online ? ' · online' : peer.last_seen ? ' · last seen ' + timeLabel(peer.last_seen) : ' · offline');
     $('conn-status').dataset.state = peer.online ? 'online' : 'offline';
   }
