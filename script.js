@@ -4,7 +4,7 @@
   // Paste the deployed Apps Script Web App URL ending in /exec here.
   const API_URL = 'https://script.google.com/macros/s/AKfycbyW_06rlpggyk054n43VbwYhgJarWsoV7CRR8iRm43Lvi_ghUKzSJeOJoM7t5pF6KcsAQ/exec';
   const $ = id => document.getElementById(id);
-  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerStatusInitialized: false, peerUsername: '', systemEvents: [], recorder: null, recordingChunks: [], recordingStartedAt: 0, pendingGalleryFiles: [], localVoiceUrls: [] };
+  const state = { token: sessionStorage.getItem('anonyms_token') || '', user: sessionStorage.getItem('anonyms_user') || '', supabaseUrl: sessionStorage.getItem('anonyms_supabase_url') || '', supabaseAnonKey: sessionStorage.getItem('anonyms_supabase_anon_key') || '', fastChatDisabled: false, messages: [], newest: '', before: '', gallery: [], busy: false, messagePolling: false, lastChatActivity: Date.now(), peerOnline: false, peerStatusInitialized: false, peerUsername: '', systemEvents: (() => { try { const saved = JSON.parse(localStorage.getItem('anonyms_system_events') || '[]'); return Array.isArray(saved) ? saved.filter(event => event && event.system && event.created_at).slice(-100) : []; } catch (_) { return []; } })(), recorder: null, recordingChunks: [], recordingStartedAt: 0, pendingGalleryFiles: [], localVoiceUrls: [] };
   const EMOJI_GROUPS = {
     smileys: [
       '❤️','😀','😃','😄','😁','😆','😅','😂','🤣','🥲','☺️','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🫣','🤭','🫢','🫡','🤫','🫠','🤥','😶','🫥','😐','🫤','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','😵‍💫','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','💀','☠️','🤡','👻','👽','🤖'
@@ -227,7 +227,6 @@
     $('app-screen').hidden = false;
     $('conn-status').textContent = 'Connected as ' + state.user;
     $('conn-status').dataset.state = 'online';
-    state.systemEvents = [];
     addSystemEvent(state.user);
     $('gallery-message').textContent = 'Loading your memories…';
     $('messages').setAttribute('aria-busy', 'true');
@@ -392,6 +391,7 @@
   function addSystemEvent(username) {
     state.systemEvents.push({id:'system-' + Date.now() + '-' + Math.random().toString(36).slice(2), system:true, username, message:username + ' is online', created_at:new Date().toISOString()});
     state.systemEvents = state.systemEvents.slice(-100);
+    try { localStorage.setItem('anonyms_system_events', JSON.stringify(state.systemEvents)); } catch (_) {}
     renderMessages();
     $('empty-state').hidden = true;
     $('messages').scrollTop = $('messages').scrollHeight;
