@@ -403,7 +403,7 @@
     displayMessages.forEach(m => {
       if (m.system) {
         const noticeRow = document.createElement('div');
-        noticeRow.className = 'system-event-row';
+        noticeRow.className = 'system-event-row ' + (m.username === state.user ? 'mine' : 'theirs');
         const notice = separator(m.message + ' · ' + timeLabel(m.created_at), 'system-event');
         noticeRow.append(notice);
         list.append(noticeRow);
