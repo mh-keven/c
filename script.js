@@ -228,12 +228,7 @@
     $('conn-status').textContent = 'Connected as ' + state.user;
     $('conn-status').dataset.state = 'online';
     state.systemEvents = [];
-    const noticeKey = 'anonyms_online_notice_' + String(state.user || '').toLowerCase();
-    const lastNoticeAt = Number(localStorage.getItem(noticeKey) || 0);
-    if (Date.now() - lastNoticeAt >= 20 * 60 * 1000) {
-      addSystemEvent(state.user + ' is online');
-      localStorage.setItem(noticeKey, String(Date.now()));
-    }
+    addSystemEvent(state.user);
     $('gallery-message').textContent = 'Loading your memories…';
     $('messages').setAttribute('aria-busy', 'true');
     clearTimeout(pollTimer); clearInterval(statusTimer);
@@ -394,8 +389,8 @@
   }
   function timeLabel(value) { return new Date(value).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }
   function separator(label, cls) { const wrap = document.createElement('div'); wrap.className = cls; const span = document.createElement('span'); span.textContent = label; wrap.append(span); return wrap; }
-  function addSystemEvent(message) {
-    state.systemEvents.push({id:'system-' + Date.now() + '-' + Math.random().toString(36).slice(2), system:true, message, created_at:new Date().toISOString()});
+  function addSystemEvent(username) {
+    state.systemEvents.push({id:'system-' + Date.now() + '-' + Math.random().toString(36).slice(2), system:true, username, message:username + ' is online', created_at:new Date().toISOString()});
     state.systemEvents = state.systemEvents.slice(-100);
     renderMessages();
     $('messages').scrollTop = $('messages').scrollHeight;
@@ -406,7 +401,9 @@
     const displayMessages = [...state.messages, ...state.systemEvents].sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
     displayMessages.forEach(m => {
       if (m.system) {
-        list.append(separator(m.message + ' · ' + timeLabel(m.created_at), 'system-event'));
+        const notice = separator(m.message + ' · ' + timeLabel(m.created_at), 'system-event');
+        notice.classList.add(m.username === state.user ? 'mine' : 'theirs');
+        list.append(notice);
         previous = m;
         return;
       }
@@ -659,7 +656,7 @@
     state.peerUsername = peer.username || (state.user === 'Keven' ? 'Zubii' : 'Keven');
     const wasOnline = state.peerOnline;
     const isOnline = !!peer.online;
-    if ((!state.peerStatusInitialized && isOnline) || (state.peerStatusInitialized && !wasOnline && isOnline)) addSystemEvent(state.peerUsername + ' is online');
+    if ((!state.peerStatusInitialized && isOnline) || (state.peerStatusInitialized && !wasOnline && isOnline)) addSystemEvent(state.peerUsername);
     state.peerOnline = isOnline;
     state.peerStatusInitialized = true;
     $('conn-status').textContent = state.peerUsername + (peer.online ? ' · online' : peer.last_seen ? ' · last seen ' + timeLabel(peer.last_seen) : ' · offline');
