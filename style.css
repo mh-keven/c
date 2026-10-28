@@ -1120,3 +1120,6 @@ body { overflow-x:hidden; }
 .system-event-row.mine,
 .system-event-row.theirs { display: flex; justify-content: center; width: 100%; box-sizing: border-box; }
 .system-event { margin-left: auto; margin-right: auto; }
+/* The other person's arrival notices shift slightly right on each viewer's screen. */
+.system-event-row.theirs .system-event { transform: translateX(10%); }
+.system-event-row.mine .system-event { transform: none; }
