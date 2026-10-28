@@ -1083,12 +1083,20 @@ body { overflow-x:hidden; }
 
 
 /* ---------- Small system notices for online arrivals ---------- */
+.system-event-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  margin: 8px 0;
+  animation: pop .22s ease-out both;
+}
+.system-event-row.mine { justify-content: flex-end; }
+.system-event-row.theirs { justify-content: flex-start; }
 .system-event {
   display: flex;
   justify-content: center;
   box-sizing: border-box;
-  clear: both;
-  margin: 8px 0;
+  margin: 0;
   clear: both;
   padding: 5px 11px;
   width: fit-content;
@@ -1103,5 +1111,4 @@ body { overflow-x:hidden; }
   box-shadow: var(--shadow-sm);
   animation: pop .22s ease-out both;
 }
-.system-event.mine { margin-left: auto; margin-right: 0; }
-.system-event.theirs { margin-left: 0; margin-right: auto; }
+
