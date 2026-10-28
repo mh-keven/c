@@ -228,7 +228,12 @@
     $('conn-status').textContent = 'Connected as ' + state.user;
     $('conn-status').dataset.state = 'online';
     state.systemEvents = [];
-    addSystemEvent(state.user + ' is online');
+    const noticeKey = 'anonyms_online_notice_' + String(state.user || '').toLowerCase();
+    const lastNoticeAt = Number(localStorage.getItem(noticeKey) || 0);
+    if (Date.now() - lastNoticeAt >= 20 * 60 * 1000) {
+      addSystemEvent(state.user + ' is online');
+      localStorage.setItem(noticeKey, String(Date.now()));
+    }
     $('gallery-message').textContent = 'Loading your memories…';
     $('messages').setAttribute('aria-busy', 'true');
     clearTimeout(pollTimer); clearInterval(statusTimer);
@@ -668,7 +673,7 @@
   async function loadGallery() {
     $('gallery-message').textContent = 'Loading your memories…';
     const result = await post('gallery', {token:state.token});
-    state.gallery = result.items || []; $('gallery-count').textContent = state.gallery.length;
+    state.gallery = result.items || []; $('gallery-count').textContent = ''; 
     renderGallery();
   }
   function renderGallery() {
