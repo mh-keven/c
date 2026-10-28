@@ -1112,3 +1112,11 @@ body { overflow-x:hidden; }
   animation: pop .22s ease-out both;
 }
 
+
+
+/* Login/online notices always stay centered; real messages keep their left/right alignment. */
+#message-list { width: 100%; box-sizing: border-box; }
+.system-event-row,
+.system-event-row.mine,
+.system-event-row.theirs { display: flex; justify-content: center; width: 100%; box-sizing: border-box; }
+.system-event { margin-left: auto; margin-right: auto; }
