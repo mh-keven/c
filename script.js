@@ -227,6 +227,12 @@
     $('app-screen').hidden = false;
     $('conn-status').textContent = 'Connected as ' + state.user;
     $('conn-status').dataset.state = 'online';
+    // Restore the persistent notice history whenever the app opens after login.
+    try {
+      const savedEvents = JSON.parse(localStorage.getItem('anonyms_system_events') || '[]');
+      if (Array.isArray(savedEvents)) state.systemEvents = savedEvents.filter(event => event && event.system && event.created_at).slice(-100);
+    } catch (_) {}
+    renderMessages();
     addSystemEvent(state.user);
     $('gallery-message').textContent = 'Loading your memories…';
     $('messages').setAttribute('aria-busy', 'true');
@@ -277,7 +283,7 @@
     clearTimeout(pollTimer); clearInterval(statusTimer);
     const oldToken = state.token;
     // Leave the app instantly; server-side session cleanup is best-effort in the background.
-    state.token = ''; state.user = ''; state.messages = []; state.systemEvents = []; state.peerStatusInitialized = false; state.peerOnline = false; state.gallery = []; state.newest = ''; state.before = '';
+    state.token = ''; state.user = ''; state.messages = []; state.peerStatusInitialized = false; state.peerOnline = false; state.gallery = []; state.newest = ''; state.before = '';
     sessionStorage.removeItem('anonyms_token'); sessionStorage.removeItem('anonyms_user');
     sessionStorage.removeItem('anonyms_supabase_url'); sessionStorage.removeItem('anonyms_supabase_anon_key');
     state.supabaseUrl = ''; state.supabaseAnonKey = ''; state.fastChatDisabled = false;
@@ -389,7 +395,14 @@
   function timeLabel(value) { return new Date(value).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }
   function separator(label, cls) { const wrap = document.createElement('div'); wrap.className = cls; const span = document.createElement('span'); span.textContent = label; wrap.append(span); return wrap; }
   function addSystemEvent(username) {
-    state.systemEvents.push({id:'system-' + Date.now() + '-' + Math.random().toString(36).slice(2), system:true, username, message:username + ' is online', created_at:new Date().toISOString()});
+    const now = Date.now();
+    const cooldownMs = 20 * 60 * 1000;
+    const latestForUser = state.systemEvents
+      .filter(event => event && event.username === username && event.created_at)
+      .reduce((latest, event) => Math.max(latest, new Date(event.created_at).getTime()), 0);
+    // Keep one arrival notice per person per 20 minutes.
+    if (latestForUser && now - latestForUser < cooldownMs) return;
+    state.systemEvents.push({id:'system-' + now + '-' + Math.random().toString(36).slice(2), system:true, username, message:username + ' is online', created_at:new Date(now).toISOString()});
     state.systemEvents = state.systemEvents.slice(-100);
     try { localStorage.setItem('anonyms_system_events', JSON.stringify(state.systemEvents)); } catch (_) {}
     renderMessages();
