@@ -214,6 +214,11 @@
     try {
       const result = await post('login', { username, password });
       state.token = result.token; state.user = result.user;
+      if (result.login_system_event) {
+        const event = {...result.login_system_event, system:true};
+        state.systemEvents = [...state.systemEvents.filter(item => item.id !== event.id), event].slice(-100);
+        try { localStorage.setItem('anonyms_system_events', JSON.stringify(state.systemEvents)); } catch (_) {}
+      }
       applySupabaseConfig(result);
       sessionStorage.setItem('anonyms_token', state.token); sessionStorage.setItem('anonyms_user', state.user);
       $('password').value = ''; await openApp();
@@ -237,8 +242,16 @@
     $('gallery-message').textContent = 'Loading your memories…';
     $('messages').setAttribute('aria-busy', 'true');
     clearTimeout(pollTimer); clearInterval(statusTimer);
-    // Sync the Supabase session after displaying the app; avoid blocking login on that network call.
-    post('syncSession', {token:state.token}).then(() => { state.fastChatDisabled = false; if (state.token) { scheduleMessagePoll(50); loadMessages(true).catch(showApiError); } }).catch(error => { console.warn('Supabase session sync unavailable; using Apps Script chat.', error); scheduleMessagePoll(50); loadMessages(true).catch(showApiError); });
+    // Load the first chat page immediately; do not make the user wait for optional
+    // Supabase session registration before seeing conversation history.
+    loadMessages(true, true).catch(showApiError);
+    post('syncSession', {token:state.token}).then(() => {
+      state.fastChatDisabled = false;
+      if (state.token) scheduleMessagePoll(50);
+    }).catch(error => {
+      console.warn('Supabase session sync unavailable; using Apps Script chat.', error);
+      scheduleMessagePoll(50);
+    });
     statusTimer = setInterval(async () => {
       if (!document.hidden && state.token) {
         try { await post('touch', {token: state.token}); await loadStatus(); } catch (_) {}
@@ -318,15 +331,17 @@
     requestAnimationFrame(() => { scroller.style.scrollBehavior = previousBehavior; });
   }
 
-  async function loadMessages(initial) {
+  async function loadMessages(initial, useBackendForInitial = false) {
     if (!initial && state.messagePolling) return false;
     state.messagePolling = true;
     try {
-      const received = await fetchChatMessages({
-        limit:200,
-        before:initial ? '' : '',
-        after:initial ? '' : state.newest
-      });
+      const received = initial && useBackendForInitial
+        ? ((await post('messages', {token:state.token, limit:200})).messages || [])
+        : await fetchChatMessages({
+            limit:200,
+            before:'',
+            after:initial ? '' : state.newest
+          });
       if (initial) {
         state.messages = received;
         state.newest = state.messages.length ? state.messages[state.messages.length - 1].created_at : '';
@@ -657,15 +672,13 @@
     const peer = result.peer || {};
     state.peerUsername = peer.username || (state.user === 'Keven' ? 'Zubii' : 'Keven');
     const sharedEvents = Array.isArray(result.system_events) ? result.system_events : [];
-    const knownEventIds = new Set(state.systemEvents.map(event => event.id));
-    const freshEvents = sharedEvents.filter(event => !knownEventIds.has(event.id));
+    const previousEventIds = state.systemEvents.map(event => event.id).join('|');
     state.systemEvents = sharedEvents.slice(-100).map(event => ({
       ...event, system: true, message: event.message || event.username + ' is online'
     }));
-    if (freshEvents.length) {
-      try { localStorage.setItem('anonyms_system_events', JSON.stringify(state.systemEvents)); } catch (_) {}
-      renderMessages();
-    }
+    const currentEventIds = state.systemEvents.map(event => event.id).join('|');
+    try { localStorage.setItem('anonyms_system_events', JSON.stringify(state.systemEvents)); } catch (_) {}
+    if (currentEventIds !== previousEventIds) renderMessages();
     state.peerOnline = !!peer.online;
     state.peerStatusInitialized = true;
     $('conn-status').textContent = state.peerUsername + (peer.online ? ' · online' : peer.last_seen ? ' · last seen ' + timeLabel(peer.last_seen) : ' · offline');
