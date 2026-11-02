@@ -141,9 +141,9 @@ function login_(username, password) {
   const now = new Date();
   const expires = new Date(now.getTime() + CFG.SESSION_TTL_SECONDS * 1000);
   withLock_(() => sheet_('Sessions').appendRow([hash, username, now.toISOString(), expires.toISOString(), now.toISOString()]));
-  recordLoginSystemEvent_(username);
-  // Keep authentication response lean; Supabase session sync and audit logging happen after the UI appears.
-  return Object.assign({ ok: true, user: username, token: token, expires_at: expires.toISOString() }, supabaseClientConfig_());
+  const loginSystemEvent = recordLoginSystemEvent_(username);
+  // Return a newly-created notice so it appears immediately; null means the user's cooldown is active.
+  return Object.assign({ ok: true, user: username, token: token, expires_at: expires.toISOString(), login_system_event: loginSystemEvent }, supabaseClientConfig_());
 }
 
 function supabaseClientConfig_() {
@@ -632,10 +632,12 @@ function recordLoginSystemEvent_(username) {
         const timestamp = new Date(row[3]).getTime();
         return Number.isFinite(timestamp) ? Math.max(max, timestamp) : max;
       }, 0);
-      if (latest && Date.now() - latest < cooldownMs) return;
+      if (latest && Date.now() - latest < cooldownMs) return null;
     }
     const now = new Date().toISOString();
-    sh.appendRow([Utilities.getUuid(), username, username + ' is online', now]);
+    const event = {id:Utilities.getUuid(), username:username, message:username + ' is online', system:true, created_at:now};
+    sh.appendRow([event.id, event.username, event.message, event.created_at]);
+    return event;
   });
 }
 
