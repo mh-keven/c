@@ -17,7 +17,8 @@ const CFG = {
     Likes: ['gallery_id', 'username', 'created_at'],
     Comments: ['id', 'gallery_id', 'username', 'comment', 'created_at'],
     Calls: ['id', 'caller', 'callee', 'status', 'created_at', 'updated_at', 'ended_by'],
-    CallSignals: ['id', 'call_id', 'from_user', 'to_user', 'type', 'payload', 'created_at']
+    CallSignals: ['id', 'call_id', 'from_user', 'to_user', 'type', 'payload', 'created_at'],
+    SystemEvents: ['id', 'username', 'message', 'created_at']
   }
 };
 
@@ -36,7 +37,7 @@ function doGet(e) {
       else if (action === 'galleryComments') result = getSupabaseGalleryComments_(p.gallery_id);
       else if (action === 'addComment') result = addSupabaseGalleryComment_(user, p.gallery_id, p.comment);
       else if (action === 'whoami') result = { ok: true, user: user };
-      else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user) };
+      else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user), system_events: getSystemEvents_() };
       else throw new Error('Unknown action');
     }
   } catch (err) { result = { ok: false, error: safeError_(err) }; }
@@ -67,7 +68,7 @@ function doPost(e) {
       else if (action === 'toggleLike') result = toggleSupabaseLike_(user, payload.gallery_id);
       else if (action === 'galleryComments') result = getSupabaseGalleryComments_(payload.gallery_id);
       else if (action === 'addComment') result = addSupabaseGalleryComment_(user, payload.gallery_id, payload.comment);
-      else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user) };
+      else if (action === 'status') result = { ok: true, user: user, peer: peerStatus_(user), system_events: getSystemEvents_() };
       else if (action === 'sendMessage') result = sendSupabaseMessage_(user, payload.message);
       else if (action === 'addYoutube') result = addYoutube_(user, payload.url, payload.title, payload.caption);
       else if (action === 'uploadMedia') result = uploadMedia_(user, payload);
@@ -140,6 +141,7 @@ function login_(username, password) {
   const now = new Date();
   const expires = new Date(now.getTime() + CFG.SESSION_TTL_SECONDS * 1000);
   withLock_(() => sheet_('Sessions').appendRow([hash, username, now.toISOString(), expires.toISOString(), now.toISOString()]));
+  recordLoginSystemEvent_(username);
   // Keep authentication response lean; Supabase session sync and audit logging happen after the UI appears.
   return Object.assign({ ok: true, user: username, token: token, expires_at: expires.toISOString() }, supabaseClientConfig_());
 }
@@ -618,6 +620,41 @@ function addGalleryComment_(user, galleryId, comment) {
   withLock_(() => sheet_('Comments').appendRow([item.id, item.gallery_id, item.username, item.comment, item.created_at]));
   return { ok: true, comment: item };
 }
+function recordLoginSystemEvent_(username) {
+  const cooldownMs = 20 * 60 * 1000;
+  withLock_(() => {
+    const sh = sheet_('SystemEvents');
+    const lastRow = sh.getLastRow();
+    if (lastRow > 1) {
+      const rows = sh.getRange(2, 1, lastRow - 1, 4).getValues();
+      const latest = rows.reduce((max, row) => {
+        if (String(row[1]) !== username) return max;
+        const timestamp = new Date(row[3]).getTime();
+        return Number.isFinite(timestamp) ? Math.max(max, timestamp) : max;
+      }, 0);
+      if (latest && Date.now() - latest < cooldownMs) return;
+    }
+    const now = new Date().toISOString();
+    sh.appendRow([Utilities.getUuid(), username, username + ' is online', now]);
+  });
+}
+
+function getSystemEvents_() {
+  const sh = sheet_('SystemEvents');
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return [];
+  const start = Math.max(2, lastRow - 99);
+  return sh.getRange(start, 1, lastRow - start + 1, 4).getValues()
+    .filter(row => row[0] && row[1] && row[3])
+    .map(row => ({
+      id: String(row[0]),
+      username: String(row[1]),
+      message: String(row[2] || row[1] + ' is online'),
+      system: true,
+      created_at: new Date(row[3]).toISOString()
+    }));
+}
+
 function peerStatus_(user) {
   const peerName = user === 'Keven' ? 'Zubii' : 'Keven';
   const now = Date.now();
