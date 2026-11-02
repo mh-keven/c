@@ -233,7 +233,7 @@
       if (Array.isArray(savedEvents)) state.systemEvents = savedEvents.filter(event => event && event.system && event.created_at).slice(-100);
     } catch (_) {}
     renderMessages();
-    addSystemEvent(state.user);
+    // Login notices are recorded by the backend and shared with both users.
     $('gallery-message').textContent = 'Loading your memories…';
     $('messages').setAttribute('aria-busy', 'true');
     clearTimeout(pollTimer); clearInterval(statusTimer);
@@ -394,21 +394,7 @@
   }
   function timeLabel(value) { return new Date(value).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }
   function separator(label, cls) { const wrap = document.createElement('div'); wrap.className = cls; const span = document.createElement('span'); span.textContent = label; wrap.append(span); return wrap; }
-  function addSystemEvent(username) {
-    const now = Date.now();
-    const cooldownMs = 20 * 60 * 1000;
-    const latestForUser = state.systemEvents
-      .filter(event => event && event.username === username && event.created_at)
-      .reduce((latest, event) => Math.max(latest, new Date(event.created_at).getTime()), 0);
-    // Keep one arrival notice per person per 20 minutes.
-    if (latestForUser && now - latestForUser < cooldownMs) return;
-    state.systemEvents.push({id:'system-' + now + '-' + Math.random().toString(36).slice(2), system:true, username, message:username + ' is online', created_at:new Date(now).toISOString()});
-    state.systemEvents = state.systemEvents.slice(-100);
-    try { localStorage.setItem('anonyms_system_events', JSON.stringify(state.systemEvents)); } catch (_) {}
-    renderMessages();
-    $('empty-state').hidden = true;
-    $('messages').scrollTop = $('messages').scrollHeight;
-  }
+
   function renderMessages() {
     const list = $('message-list'); list.replaceChildren();
     let previous = null;
@@ -670,10 +656,17 @@
     const result = await post('status', {token:state.token});
     const peer = result.peer || {};
     state.peerUsername = peer.username || (state.user === 'Keven' ? 'Zubii' : 'Keven');
-    const wasOnline = state.peerOnline;
-    const isOnline = !!peer.online;
-    if ((!state.peerStatusInitialized && isOnline) || (state.peerStatusInitialized && !wasOnline && isOnline)) addSystemEvent(state.peerUsername);
-    state.peerOnline = isOnline;
+    const sharedEvents = Array.isArray(result.system_events) ? result.system_events : [];
+    const knownEventIds = new Set(state.systemEvents.map(event => event.id));
+    const freshEvents = sharedEvents.filter(event => !knownEventIds.has(event.id));
+    state.systemEvents = sharedEvents.slice(-100).map(event => ({
+      ...event, system: true, message: event.message || event.username + ' is online'
+    }));
+    if (freshEvents.length) {
+      try { localStorage.setItem('anonyms_system_events', JSON.stringify(state.systemEvents)); } catch (_) {}
+      renderMessages();
+    }
+    state.peerOnline = !!peer.online;
     state.peerStatusInitialized = true;
     $('conn-status').textContent = state.peerUsername + (peer.online ? ' · online' : peer.last_seen ? ' · last seen ' + timeLabel(peer.last_seen) : ' · offline');
     $('conn-status').dataset.state = peer.online ? 'online' : 'offline';
