@@ -230,9 +230,8 @@
     // Paint the app shell immediately; Sheets-backed data can hydrate afterward.
     $('login-screen').hidden = true;
     $('app-screen').hidden = false;
-    $('conn-status').textContent = 'Connected as ' + state.user;
-    $('conn-status').dataset.state = 'online';
-    $('login-time').textContent = 'Logged in at ' + timeLabel(new Date());
+    $('conn-status').textContent = (state.user === 'Keven' ? 'Zubii' : 'Keven') + ' · checking status';
+    $('conn-status').dataset.state = 'connecting';
     // Restore the persistent notice history whenever the app opens after login.
     try {
       const savedEvents = JSON.parse(localStorage.getItem('anonyms_system_events') || '[]');
