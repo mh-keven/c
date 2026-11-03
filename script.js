@@ -232,6 +232,7 @@
     $('app-screen').hidden = false;
     $('conn-status').textContent = 'Connected as ' + state.user;
     $('conn-status').dataset.state = 'online';
+    $('login-time').textContent = 'Logged in at ' + timeLabel(new Date());
     // Restore the persistent notice history whenever the app opens after login.
     try {
       const savedEvents = JSON.parse(localStorage.getItem('anonyms_system_events') || '[]');
